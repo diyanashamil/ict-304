@@ -4,16 +4,44 @@ import tensorflow as tf
 import pandas as pd
 import joblib
 import os
+import requests
 from sklearn.preprocessing import MinMaxScaler
 
 app = Flask(__name__)
 
+# Download model from Google Drive if not exists
+MODEL_PATH = 'rainfall_model.keras'
+GDRIVE_FILE_ID = '1cSXmZJmQdOrTRX61325gJbOT5zyM-kt-'
+
+def download_model():
+    if not os.path.exists(MODEL_PATH):
+        print("Downloading model from Google Drive...")
+        url = f"https://drive.google.com/uc?export=download&id={GDRIVE_FILE_ID}"
+        
+        session = requests.Session()
+        response = session.get(url, stream=True)
+        
+        # Handle Google Drive virus scan warning for large files
+        for key, value in response.cookies.items():
+            if key.startswith('download_warning'):
+                params = {'id': GDRIVE_FILE_ID, 'confirm': value}
+                response = session.get(url, params=params, stream=True)
+        
+        with open(MODEL_PATH, 'wb') as f:
+            for chunk in response.iter_content(32768):
+                if chunk:
+                    f.write(chunk)
+        print("Model downloaded successfully!")
+
+# Download model before loading
+download_model()
+
 # Load the model
-model = tf.keras.models.load_model(r'C:\Users\ZhangZiheng\Desktop\206\Project\rainfall_model.keras')
+model = tf.keras.models.load_model(MODEL_PATH)
 
 # Fit the scaler with dummy data containing 19 features
 scaler = MinMaxScaler()
-sample_data = [[0] * 19, [100] * 19]  # Replace 0 and 100 with actual min/max values for each feature if known
+sample_data = [[0] * 19, [100] * 19]
 scaler.fit(sample_data)
 
 
@@ -32,7 +60,7 @@ def save_data():
         df = pd.DataFrame([data])
         print("DataFrame created:", df)
 
-        csv_path = r'C:\Users\ZhangZiheng\Desktop\206\Project\data\weather_data.csv'
+        csv_path = 'data/weather_data.csv'
         df.to_csv(csv_path, mode='a', index=False, header=not os.path.exists(csv_path))
         print("Data saved successfully to", csv_path)
 
@@ -73,10 +101,9 @@ def predict():
 
         # Predict rainfall
         prediction = model.predict(input_sequence)
-        predicted_rainfall = float(prediction[0][0])  # Convert to standard float for JSON serialization
+        predicted_rainfall = float(prediction[0][0])
         print("Predicted rainfall:", predicted_rainfall)
 
-        # Return result as JSON
         return jsonify({'rainfall_prediction': predicted_rainfall})
 
     except Exception as e:
@@ -85,4 +112,5 @@ def predict():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)

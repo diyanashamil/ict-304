@@ -2,88 +2,463 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Rainfall Prediction and Early Warning System</title>
-	<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rainfall Prediction System</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .subtitle {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        h3 {
+            color: #333;
+            margin-bottom: 25px;
+            font-size: 1.5em;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 0.95em;
+        }
+
+        input[type="number"],
+        input[type="datetime-local"] {
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            background: #f8f9fa;
+        }
+
+        input[type="number"]:focus,
+        input[type="datetime-local"]:focus {
+            outline: none;
+            border-color: #667eea;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 30px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 15px 40px;
+            font-size: 1.1em;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            color: white;
+        }
+
+        button:first-child {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:first-child:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        button:last-child {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            box-shadow: 0 4px 15px rgba(245, 87, 108, 0.4);
+        }
+
+        button:last-child:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(245, 87, 108, 0.6);
+        }
+
+        .result-section {
+            margin-top: 40px;
+            padding: 30px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 15px;
+            text-align: center;
+            display: none;
+        }
+
+        #predictionResult {
+            font-size: 1.8em;
+            color: #333;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+
+        #rainfallChart {
+            max-width: 100%;
+            margin: 20px auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .button-group {
+                flex-direction: column;
+            }
+            
+            button {
+                width: 100%;
+            }
+            
+            h1 {
+                font-size: 1.8em;
+            }
+            
+            .content {
+                padding: 20px;
+            }
+        }
+    </style>
 </head>
 <body>
-    <h1>Rainfall Prediction and Early Warning System</h1>
+    <div class="container">
+        <header>
+            <h1>🌧️ Rainfall Prediction System</h1>
+            <p class="subtitle">AI-Powered Weather Forecasting & Early Warning</p>
+        </header>
 
-    <div>
-        <h3>Enter Weather Data</h3>
-        <form id="dataForm">
-            <label for="datetime">Date and Time:</label>
-            <input type="datetime-local" id="datetime" name="datetime"><br><br>
+        <div class="content">
+            <h3>📊 Enter Weather Data</h3>
+            <form id="dataForm">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="datetime">📅 Date and Time:</label>
+                        <input type="datetime-local" id="datetime" name="datetime">
+                    </div>
 
-            <label for="p">Pressure (p):</label>
-            <input type="number" id="p" name="p" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="p">🌡️ Pressure (p):</label>
+                        <input type="number" id="p" name="p" step="0.01" placeholder="e.g., 1013.25">
+                    </div>
 
-            <label for="T">Temperature (T):</label>
-            <input type="number" id="T" name="T" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="T">🌡️ Temperature (T):</label>
+                        <input type="number" id="T" name="T" step="0.01" placeholder="e.g., 25.5">
+                    </div>
 
-            <label for="Tpot">Potential Temperature (Tpot):</label>
-            <input type="number" id="Tpot" name="Tpot" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="Tpot">🔥 Potential Temperature (Tpot):</label>
+                        <input type="number" id="Tpot" name="Tpot" step="0.01" placeholder="e.g., 298.5">
+                    </div>
 
-            <label for="Tdew">Dew Point (Tdew):</label>
-            <input type="number" id="Tdew" name="Tdew" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="Tdew">💧 Dew Point (Tdew):</label>
+                        <input type="number" id="Tdew" name="Tdew" step="0.01" placeholder="e.g., 18.2">
+                    </div>
 
-            <label for="rh">Relative Humidity (rh):</label>
-            <input type="number" id="rh" name="rh" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="rh">💦 Relative Humidity (rh):</label>
+                        <input type="number" id="rh" name="rh" step="0.01" placeholder="e.g., 65.5">
+                    </div>
 
-            <label for="VPmax">VPmax:</label>
-            <input type="number" id="VPmax" name="VPmax" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="VPmax">📊 VPmax:</label>
+                        <input type="number" id="VPmax" name="VPmax" step="0.01" placeholder="e.g., 31.7">
+                    </div>
 
-            <label for="VPact">VPact:</label>
-            <input type="number" id="VPact" name="VPact" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="VPact">📊 VPact:</label>
+                        <input type="number" id="VPact" name="VPact" step="0.01" placeholder="e.g., 20.8">
+                    </div>
 
-            <label for="VPdef">VPdef:</label>
-            <input type="number" id="VPdef" name="VPdef" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="VPdef">📊 VPdef:</label>
+                        <input type="number" id="VPdef" name="VPdef" step="0.01" placeholder="e.g., 10.9">
+                    </div>
 
-            <label for="sh">Specific Humidity (sh):</label>
-            <input type="number" id="sh" name="sh" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="sh">💨 Specific Humidity (sh):</label>
+                        <input type="number" id="sh" name="sh" step="0.01" placeholder="e.g., 13.2">
+                    </div>
 
-            <label for="H2OC">H2O Concentration:</label>
-            <input type="number" id="H2OC" name="H2OC" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="H2OC">💧 H2O Concentration:</label>
+                        <input type="number" id="H2OC" name="H2OC" step="0.01" placeholder="e.g., 21.1">
+                    </div>
 
-            <label for="rho">Air Density (rho):</label>
-            <input type="number" id="rho" name="rho" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="rho">🌬️ Air Density (rho):</label>
+                        <input type="number" id="rho" name="rho" step="0.01" placeholder="e.g., 1180.5">
+                    </div>
 
-            <label for="wv">Wind Velocity (wv):</label>
-            <input type="number" id="wv" name="wv" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="wv">🌪️ Wind Velocity (wv):</label>
+                        <input type="number" id="wv" name="wv" step="0.01" placeholder="e.g., 4.5">
+                    </div>
 
-            <label for="max_wv">Max Wind Velocity (max. wv):</label>
-            <input type="number" id="max_wv" name="max_wv" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="max_wv">💨 Max Wind Velocity:</label>
+                        <input type="number" id="max_wv" name="max_wv" step="0.01" placeholder="e.g., 8.2">
+                    </div>
 
-            <label for="wd">Wind Direction (wd):</label>
-            <input type="number" id="wd" name="wd" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="wd">🧭 Wind Direction (wd):</label>
+                        <input type="number" id="wd" name="wd" step="0.01" placeholder="e.g., 180.5">
+                    </div>
 
-            <label for="rain">Rain:</label>
-            <input type="number" id="rain" name="rain" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="rain">🌧️ Rain:</label>
+                        <input type="number" id="rain" name="rain" step="0.01" placeholder="e.g., 0.5">
+                    </div>
 
-            <label for="raining">Raining (0 or 1):</label>
-            <input type="number" id="raining" name="raining" min="0" max="1"><br><br>
+                    <div class="form-group">
+                        <label for="raining">☔ Raining (0 or 1):</label>
+                        <input type="number" id="raining" name="raining" min="0" max="1" placeholder="0 or 1">
+                    </div>
 
-            <label for="SWDR">Shortwave Down Radiation (SWDR):</label>
-            <input type="number" id="SWDR" name="SWDR" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="SWDR">☀️ Shortwave Radiation (SWDR):</label>
+                        <input type="number" id="SWDR" name="SWDR" step="0.01" placeholder="e.g., 450.3">
+                    </div>
 
-            <label for="PAR">Photosynthetically Active Radiation (PAR):</label>
-            <input type="number" id="PAR" name="PAR" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="PAR">🌿 PAR:</label>
+                        <input type="number" id="PAR" name="PAR" step="0.01" placeholder="e.g., 920.5">
+                    </div>
 
-            <label for="max_PAR">Max PAR:</label>
-            <input type="number" id="max_PAR" name="max_PAR" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="max_PAR">🌞 Max PAR:</label>
+                        <input type="number" id="max_PAR" name="max_PAR" step="0.01" placeholder="e.g., 1250.8">
+                    </div>
 
-            <label for="Tlog">Logarithmic Temperature (Tlog):</label>
-            <input type="number" id="Tlog" name="Tlog" step="0.01"><br><br>
+                    <div class="form-group">
+                        <label for="Tlog">📈 Logarithmic Temperature (Tlog):</label>
+                        <input type="number" id="Tlog" name="Tlog" step="0.01" placeholder="e.g., 5.7">
+                    </div>
+                </div>
 
-            <button type="button" onclick="submitData()">Submit Data</button>
-            <button type="button" onclick="makePrediction()">Predict Rainfall</button>
-        </form>
+                <div class="button-group">
+                    <button type="button" onclick="submitData()">💾 Submit Data</button>
+                    <button type="button" onclick="makePrediction()">🔮 Predict Rainfall</button>
+                </div>
+            </form>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Processing...</p>
+            </div>
+
+            <div class="result-section" id="resultSection">
+                <h3 id="predictionResult"></h3>
+                <canvas id="rainfallChart" width="400" height="200"></canvas>
+            </div>
+        </div>
     </div>
 
-    <h3 id="predictionResult"></h3>
-    <canvas id="rainfallChart" width="400" height="200"></canvas>
+    <script>
+        function submitData() {
+            const formData = getFormData();
+            const loading = document.getElementById('loading');
+            
+            loading.classList.add('active');
+            
+            fetch('/save', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                loading.classList.remove('active');
+                alert('✅ Data saved successfully!');
+            })
+            .catch(error => {
+                loading.classList.remove('active');
+                alert('❌ Error saving data: ' + error);
+            });
+        }
 
-	<script src="{{ url_for('static', filename='script.js') }}"></script>
+        function makePrediction() {
+            const formData = getFormData();
+            const loading = document.getElementById('loading');
+            const resultSection = document.getElementById('resultSection');
+            
+            loading.classList.add('active');
+            resultSection.style.display = 'none';
+            
+            fetch('/predict', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                loading.classList.remove('active');
+                
+                if (data.error) {
+                    alert('❌ Error: ' + data.error);
+                    return;
+                }
+                
+                const rainfall = data.rainfall_prediction;
+                document.getElementById('predictionResult').textContent = 
+                    `Predicted Rainfall: ${rainfall.toFixed(2)} mm`;
+                
+                resultSection.style.display = 'block';
+                updateChart(rainfall);
+            })
+            .catch(error => {
+                loading.classList.remove('active');
+                alert('❌ Error making prediction: ' + error);
+            });
+        }
 
+        function getFormData() {
+            const form = document.getElementById('dataForm');
+            const formData = {};
+            
+            const inputs = form.querySelectorAll('input');
+            inputs.forEach(input => {
+                formData[input.name] = input.value;
+            });
+            
+            return formData;
+        }
+
+        let rainfallChart = null;
+
+        function updateChart(rainfall) {
+            const ctx = document.getElementById('rainfallChart').getContext('2d');
+            
+            if (rainfallChart) {
+                rainfallChart.destroy();
+            }
+            
+            rainfallChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Predicted Rainfall'],
+                    datasets: [{
+                        label: 'Rainfall (mm)',
+                        data: [rainfall],
+                        backgroundColor: rainfall > 10 ? 'rgba(245, 87, 108, 0.8)' : 'rgba(102, 126, 234, 0.8)',
+                        borderColor: rainfall > 10 ? 'rgba(245, 87, 108, 1)' : 'rgba(102, 126, 234, 1)',
+                        borderWidth: 2,
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Rainfall (mm)',
+                                font: {
+                                    size: 14,
+                                    weight: 'bold'
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+    </script>
 </body>
 </html>
