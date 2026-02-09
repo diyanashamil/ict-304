@@ -1,5 +1,13 @@
 function submitData() {
-    // Validate required fields
+    // Validate datetime
+    const datetime = document.getElementById("datetime").value;
+    if (!datetime) {
+        alert("❌ Please select date and time");
+        document.getElementById("datetime").focus();
+        return;
+    }
+
+    // Validate all required fields
     const requiredFields = ['p', 'T', 'Tpot', 'Tdew', 'rh', 'VPmax', 'VPact', 'VPdef', 'sh', 
                            'H2OC', 'rho', 'wv', 'max_wv', 'wd', 'rain', 'SWDR', 'PAR', 'max_PAR', 'Tlog'];
     
@@ -13,7 +21,7 @@ function submitData() {
     }
 
     const data = {
-        datetime: document.getElementById("datetime").value,
+        datetime: datetime,
         p: parseFloat(document.getElementById("p").value),
         T: parseFloat(document.getElementById("T").value),
         Tpot: parseFloat(document.getElementById("Tpot").value),
@@ -75,12 +83,14 @@ function makePrediction() {
     const rh = parseFloat(document.getElementById("rh").value);
     if (rh < 0 || rh > 100) {
         alert("❌ Relative Humidity must be between 0 and 100");
+        document.getElementById("rh").focus();
         return;
     }
 
     const wd = parseFloat(document.getElementById("wd").value);
     if (wd < 0 || wd > 360) {
         alert("❌ Wind Direction must be between 0 and 360 degrees");
+        document.getElementById("wd").focus();
         return;
     }
 
