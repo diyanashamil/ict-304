@@ -33,7 +33,7 @@ download_model()
 model = tf.keras.models.load_model(MODEL_PATH)
 
 scaler = MinMaxScaler()
-sample_data = [[0] * 19, [100] * 19]
+sample_data = [[0] * 20, [100] * 20]
 scaler.fit(sample_data)
 
 @app.route('/')
