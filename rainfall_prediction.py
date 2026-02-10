@@ -4,8 +4,8 @@ import tensorflow as tf
 import pandas as pd
 import os
 import requests
-from sklearn.preprocessing import MinMaxScaler
 import math
+from sklearn.preprocessing import MinMaxScaler
 
 app = Flask(__name__)
 
@@ -17,15 +17,12 @@ def download_model():
     if not os.path.exists(MODEL_PATH):
         print("Downloading model from Google Drive...")
         url = f"https://drive.google.com/uc?export=download&id={GDRIVE_FILE_ID}"
-        
         session = requests.Session()
         response = session.get(url, stream=True)
-        
         for key, value in response.cookies.items():
             if key.startswith('download_warning'):
                 params = {'id': GDRIVE_FILE_ID, 'confirm': value}
                 response = session.get(url, params=params, stream=True)
-        
         with open(MODEL_PATH, 'wb') as f:
             for chunk in response.iter_content(32768):
                 if chunk:
@@ -40,11 +37,16 @@ sample_data = [[0] * 19, [100] * 19]
 scaler.fit(sample_data)
 
 @app.route('/')
+def home():
+    return render_template('index.html')
+
 @app.route('/docs')
 def documentation():
     return render_template('documentation.html')
-def home():
-    return render_template('index.html')
+
+@app.route('/data')
+def view_data():
+    return render_template('data_view.html')
 
 os.makedirs('data', exist_ok=True)
       
@@ -54,7 +56,6 @@ def save_data():
         data = request.json
         print("Received data:", data)
         df = pd.DataFrame([data])
-        print("DataFrame created:", df)
         csv_path = 'data/weather_data.csv'
         df.to_csv(csv_path, mode='a', index=False, header=not os.path.exists(csv_path))
         print("Data saved successfully to", csv_path)
@@ -77,24 +78,16 @@ def predict():
             float(data.get('PAR', 0)), float(data.get('max_PAR', 0)), float(data.get('Tlog', 0)),
             float(data.get('rain', 0))
         ]
-        print("Feature values:", feature_values)
         scaled_input = scaler.transform([feature_values])[0]
-        print("Scaled input data:", scaled_input)
         sequence_length = 19
         input_sequence = np.array([scaled_input] * sequence_length)
         input_sequence = input_sequence.reshape((1, sequence_length, len(feature_values)))
-        print("Prepared input data for model:", input_sequence)
         prediction = model.predict(input_sequence)
         predicted_rainfall = float(prediction[0][0])
-        print("Predicted rainfall:", predicted_rainfall)
         return jsonify({'rainfall_prediction': predicted_rainfall})
     except Exception as e:
         print(f"Error in prediction: {e}")
         return jsonify({"error": str(e)}), 500
-
-@app.route('/data')
-def view_data():
-    return render_template('data_view.html')
 
 @app.route('/api/data')
 def get_data():
@@ -118,7 +111,6 @@ def get_data():
         
         start = (page - 1) * per_page
         end = start + per_page
-        
         page_data = df.iloc[start:end]
         
         return jsonify({
