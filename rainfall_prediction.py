@@ -40,6 +40,9 @@ sample_data = [[0] * 19, [100] * 19]
 scaler.fit(sample_data)
 
 @app.route('/')
+@app.route('/docs')
+def documentation():
+    return render_template('documentation.html')
 def home():
     return render_template('index.html')
 
