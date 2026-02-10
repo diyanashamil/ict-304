@@ -16,6 +16,7 @@ function getFormData() {
         max_wv: parseFloat(document.getElementById('max_wv').value),
         wd: parseFloat(document.getElementById('wd').value),
         rain: parseFloat(document.getElementById('rain').value),
+        raining: parseFloat(document.getElementById('raining').value || 0),
         SWDR: parseFloat(document.getElementById('SWDR').value),
         PAR: parseFloat(document.getElementById('PAR').value),
         max_PAR: parseFloat(document.getElementById('max_PAR').value),
