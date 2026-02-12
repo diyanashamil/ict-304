@@ -71,6 +71,28 @@ if not MODEL_PATH.exists():
 
 print(f"Loading model from {MODEL_PATH}...")
 import tf_keras
+
+# -----------------------------
+# Patch: fix legacy 'batch_shape' argument in saved model config
+# Older Keras versions saved InputLayer with 'batch_shape' which
+# newer tf_keras versions no longer recognise. This remaps it.
+# -----------------------------
+try:
+    from tf_keras.src.engine.input_layer import InputLayer as _InputLayer
+    _orig_from_config = _InputLayer.from_config.__func__
+
+    @classmethod
+    def _patched_from_config(cls, config):
+        if 'batch_shape' in config:
+            config = dict(config)
+            config['batch_input_shape'] = config.pop('batch_shape')
+        return _orig_from_config(cls, config)
+
+    _InputLayer.from_config = _patched_from_config
+    print("InputLayer.from_config patched for batch_shape compatibility.")
+except Exception as _patch_err:
+    print(f"Warning: Could not apply InputLayer patch: {_patch_err}")
+
 model = tf_keras.models.load_model(str(MODEL_PATH))
 print("Model loaded successfully!")
 
