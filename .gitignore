@@ -4,7 +4,6 @@ venv/
 __pycache__/
 data/
 *.csv
-*.keras
 .DS_Store
 
 
