@@ -67,30 +67,45 @@ except Exception as e:
     print(f"Warning: PATCH 1 failed: {e}")
 
 # -----------------------------
-# PATCH 2: Fix 'str has no attribute name' in mixed_precision policy
-# base_layer.py imports get_policy directly so we must patch _set_dtype_policy instead
+# PATCH 2: Fix 'str has no attribute name' in mixed_precision policy.get_policy
+# base_layer calls policy.get_policy(dtype) where policy is the module reference.
+# We replace get_policy on that same module object so base_layer picks it up.
 # -----------------------------
 try:
-    from tf_keras.src.engine import base_layer as _base_layer
     from tf_keras.src.mixed_precision import policy as _mp_policy
+    import tf_keras.src.engine.base_layer as _base_layer_mod
 
-    _orig_set_dtype_policy = _base_layer.BaseLayer._set_dtype_policy
+    _orig_get_policy = _mp_policy.get_policy
 
-    def _patched_set_dtype_policy(self, dtype):
-        if isinstance(dtype, str):
-            try:
-                dtype = _mp_policy.Policy(dtype)
-            except Exception:
-                pass
-        _orig_set_dtype_policy(self, dtype)
+    def _patched_get_policy(identifier=None):
+        # if global policy is a raw string, fix it first
+        try:
+            _cur = _mp_policy._get_current_policy()
+            if isinstance(_cur, str):
+                _mp_policy.set_global_policy(_mp_policy.Policy(_cur))
+        except Exception:
+            pass
+        # if caller passes a string identifier, wrap it directly
+        if isinstance(identifier, str):
+            return _mp_policy.Policy(identifier)
+        return _orig_get_policy(identifier)
 
-    _base_layer.BaseLayer._set_dtype_policy = _patched_set_dtype_policy
-    print("PATCH 2 applied: _set_dtype_policy string->Policy fix.")
+    # patch the policy module in-place (base_layer holds a ref to this module)
+    _mp_policy.get_policy = _patched_get_policy
+    # also explicitly replace in base_layer's imported policy module reference
+    _base_layer_mod.policy.get_policy = _patched_get_policy
+
+    print("PATCH 2 applied: get_policy string->Policy fix.")
 except Exception as e:
     print(f"Warning: PATCH 2 failed: {e}")
 
-model = tf_keras.models.load_model(str(MODEL_PATH), compile=False)
-print("Model loaded successfully!")
+try:
+    model = tf_keras.models.load_model(str(MODEL_PATH), compile=False)
+    print("Model loaded via tf_keras!")
+except Exception as _load_err:
+    print(f"tf_keras load failed ({_load_err}), trying tf.keras fallback...")
+    model = tf.keras.models.load_model(str(MODEL_PATH), compile=False)
+    print("Model loaded via tf.keras fallback!")
 
 # Simple scaler - 19 features (matching original model)
 N_FEATURES = 19
