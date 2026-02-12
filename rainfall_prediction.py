@@ -1,20 +1,4 @@
-"""Flask app for Rainfall Forecasting + Fuzzy Flood Risk.
-
-GitHub-friendly version:
-- Uses relative paths (./data, ./models, ./templates)
-- Supports PORT env var (Render/Heroku style)
-- Optionally auto-downloads model artifacts from Google Drive if missing
-
-Environment variables (optional, for auto-download):
-  GDRIVE_MODEL_ID
-  GDRIVE_FEATURE_SCALER_ID
-  GDRIVE_RAIN_SCALER_ID
-  GDRIVE_FEATURE_COLS_ID
-  GDRIVE_META_ID
-
-If any artifact is missing and the corresponding env var is not set, the app will raise a
-clear error telling you what to provide.
-"""
+"""Flask app for Rainfall Forecasting + Fuzzy Flood Risk."""
 
 from __future__ import annotations
 
@@ -42,26 +26,16 @@ MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 app = Flask(__name__, template_folder=str(TEMPLATES_DIR))
 
-# Read-only training/backfill dataset
 TRAIN_CSV_PATH = DATA_DIR / "weather_data.csv"
-
-# Observed runtime feature inputs (1 row per input, 10-min sampling)
 INPUT_CSV_PATH = DATA_DIR / "input.csv"
-
-# Optional user-provided future rainfall scenario (10-min sampling)
 BULK_CSV_PATH = DATA_DIR / "bulk_save.csv"
 BULK_CURSOR_PATH = DATA_DIR / "bulk_cursor.json"
-
-# Auto-roll rainfall history (1 value per 10-min tick)
 OBS_RAIN_PATH = DATA_DIR / "observed_rain.csv"
-
-# Store last forecast so we can roll ONLY the first step next time
 LAST_FORECAST_PATH = DATA_DIR / "last_forecast.json"
-
 MODEL_PATH = MODELS_DIR / "rainfall_model.keras"
 
 # -----------------------------
-# Load model (local only - no Google Drive)
+# Load model
 # -----------------------------
 if not MODEL_PATH.exists():
     raise FileNotFoundError(
@@ -73,27 +47,48 @@ print(f"Loading model from {MODEL_PATH}...")
 import tf_keras
 
 # -----------------------------
-# Patch: fix legacy 'batch_shape' argument in saved model config
-# Older Keras versions saved InputLayer with 'batch_shape' which
-# newer tf_keras versions no longer recognise. This remaps it.
+# PATCH 1: Fix legacy 'batch_shape' in InputLayer config
+# Older Keras saved models use 'batch_shape'; newer tf_keras expects 'batch_input_shape'
 # -----------------------------
 try:
     from tf_keras.src.engine.input_layer import InputLayer as _InputLayer
-    _orig_from_config = _InputLayer.from_config.__func__
+    _orig_input_from_config = _InputLayer.from_config.__func__
 
     @classmethod
-    def _patched_from_config(cls, config):
+    def _patched_input_from_config(cls, config):
         if 'batch_shape' in config:
             config = dict(config)
             config['batch_input_shape'] = config.pop('batch_shape')
-        return _orig_from_config(cls, config)
+        return _orig_input_from_config(cls, config)
 
-    _InputLayer.from_config = _patched_from_config
-    print("InputLayer.from_config patched for batch_shape compatibility.")
-except Exception as _patch_err:
-    print(f"Warning: Could not apply InputLayer patch: {_patch_err}")
+    _InputLayer.from_config = _patched_input_from_config
+    print("PATCH 1 applied: InputLayer batch_shape fix.")
+except Exception as e:
+    print(f"Warning: PATCH 1 failed: {e}")
 
-model = tf_keras.models.load_model(str(MODEL_PATH))
+# -----------------------------
+# PATCH 2: Fix 'str has no attribute name' in mixed_precision policy
+# Older saved models store LSTM dtype as plain string; newer tf_keras expects Policy object
+# -----------------------------
+try:
+    from tf_keras.src.mixed_precision import policy as _mp_policy
+
+    _orig_get_policy = _mp_policy.get_policy
+
+    def _patched_get_policy(identifier):
+        try:
+            return _orig_get_policy(identifier)
+        except AttributeError:
+            if isinstance(identifier, str):
+                return _mp_policy.Policy(identifier)
+            raise
+
+    _mp_policy.get_policy = _patched_get_policy
+    print("PATCH 2 applied: mixed_precision policy string fix.")
+except Exception as e:
+    print(f"Warning: PATCH 2 failed: {e}")
+
+model = tf_keras.models.load_model(str(MODEL_PATH), compile=False)
 print("Model loaded successfully!")
 
 # Simple scaler - 19 features (matching original model)
@@ -112,9 +107,6 @@ FEATURE_COLS: List[str] = [
     "SWDR", "PAR", "Tlog"
 ]
 
-# -----------------------------
-# Input validation ranges (UI + API)
-# -----------------------------
 FEATURE_RANGES = {
     "T": (-10.0, 60.0),
     "rh": (0.0, 100.0),
@@ -143,17 +135,12 @@ def validate_feature_ranges(row: dict) -> List[str]:
             continue
         if v < lo or v > hi:
             errs.append(f"{k} out of range [{lo}, {hi}] (got {v})")
-    # raining should be 0 or 1 ideally
     if "raining" in row:
         rv = coerce_float(row.get("raining"), 0.0)
         if rv not in (0.0, 1.0):
             errs.append("raining must be 0 or 1")
     return errs
 
-
-# -----------------------------
-# Cursor helpers for scenario simulation
-# -----------------------------
 
 def _read_cursor() -> int:
     if not BULK_CURSOR_PATH.exists():
@@ -168,10 +155,6 @@ def _read_cursor() -> int:
 def _write_cursor(idx: int) -> None:
     BULK_CURSOR_PATH.write_text(json.dumps({"idx": int(idx)}, indent=2), encoding="utf-8")
 
-
-# -----------------------------
-# Auto-roll helpers
-# -----------------------------
 
 def _read_last_forecast() -> List[float] | None:
     if not LAST_FORECAST_PATH.exists():
@@ -206,9 +189,7 @@ def _append_observed_rain(value_mm: float) -> None:
 
 
 def load_recent_rain_series() -> np.ndarray | None:
-    """Recent rain window used by fuzzy risk (train rain + rolled-in rain)."""
     parts = []
-
     if TRAIN_CSV_PATH.exists():
         try:
             train_df = pd.read_csv(TRAIN_CSV_PATH)
@@ -218,7 +199,6 @@ def load_recent_rain_series() -> np.ndarray | None:
                     parts.append(train_rain)
         except Exception:
             pass
-
     if OBS_RAIN_PATH.exists():
         try:
             obs_df = pd.read_csv(OBS_RAIN_PATH)
@@ -228,22 +208,15 @@ def load_recent_rain_series() -> np.ndarray | None:
                     parts.append(obs_rain)
         except Exception:
             pass
-
     if not parts:
         return None
-
     full = np.concatenate(parts, axis=0)
     if len(full) < RECENT_WINDOW_STEPS:
         return None
     return full[-RECENT_WINDOW_STEPS:].astype(np.float32)
 
 
-# -----------------------------
-# Feature window builder
-# -----------------------------
-
 def build_feature_row_from_json(data: dict) -> dict:
-    """Build a single feature row matching training feature columns (19 features)."""
     row = {}
     for col in FEATURE_COLS:
         val = data.get(col, data.get(col.replace(". ", "_"), 0.0))
@@ -252,7 +225,6 @@ def build_feature_row_from_json(data: dict) -> dict:
 
 
 def run_model_forecast(window_df: pd.DataFrame) -> np.ndarray:
-    """Run model using simple scaler - works with original rainfall_model.keras."""
     row = window_df.iloc[-1]
     feature_values = [coerce_float(row[c] if c in row.index else 0.0) for c in FEATURE_COLS]
     scaled_input = scaler.transform([feature_values])[0]
@@ -264,16 +236,9 @@ def run_model_forecast(window_df: pd.DataFrame) -> np.ndarray:
     return series
 
 
-
-# -----------------------------
-# Forecast sources
-# -----------------------------
-
 def get_simulated_forecast_series() -> Tuple[np.ndarray | None, str | None]:
-    """Use bulk_save.csv as the future 18-step forecast; advances cursor by 1 per call."""
     if not BULK_CSV_PATH.exists():
         return None, "bulk_save.csv not found. Upload a scenario first."
-
     df = pd.read_csv(BULK_CSV_PATH)
     if "rain" in df.columns:
         col = "rain"
@@ -281,25 +246,16 @@ def get_simulated_forecast_series() -> Tuple[np.ndarray | None, str | None]:
         col = "rain_mm"
     else:
         return None, "bulk_save.csv must contain a 'rain' or 'rain_mm' column."
-
     series = pd.to_numeric(df[col], errors="coerce").dropna().to_numpy(dtype=np.float32)
     if len(series) < HORIZON_STEPS:
         return None, f"bulk_save.csv needs at least {HORIZON_STEPS} rows."
-
     idx = _read_cursor()
     if idx + HORIZON_STEPS > len(series):
         return None, "Simulation scenario exhausted. Reset cursor or upload a longer scenario."
-
     forecast = series[idx : idx + HORIZON_STEPS].astype(float)
     _write_cursor(idx + 1)
     return forecast, None
 
-
-# -----------------------------
-# FUZZY LOGIC risk assessment (Mamdani)
-# Inputs: forecast_total, forecast_peak, step_delta (this-call peak - previous-call peak)
-# Output: flood risk in [0,1] + label
-# -----------------------------
 
 def _trapmf(x: float, a: float, b: float, c: float, d: float) -> float:
     if x <= a or x >= d:
@@ -308,7 +264,6 @@ def _trapmf(x: float, a: float, b: float, c: float, d: float) -> float:
         return 1.0
     if a < x < b:
         return (x - a) / (b - a)
-    # c < x < d
     return (d - x) / (d - c)
 
 
@@ -323,26 +278,16 @@ def _trimf(x: float, a: float, b: float, c: float) -> float:
 
 
 def fuzzy_risk_mamdani(forecast_total: float, forecast_peak: float, step_delta: float) -> Tuple[float, str, List[str]]:
-    """Simple Mamdani fuzzy system with centroid defuzzification."""
-
-    # ---- fuzzify inputs ----
-    # total mm over 3h (0..30+ typical)
     total_low = _trapmf(forecast_total, 0, 0, 3, 8)
     total_med = _trimf(forecast_total, 5, 12, 20)
     total_high = _trapmf(forecast_total, 15, 22, 35, 60)
-
-    # peak mm per 10-min (0..10+ typical)
     peak_low = _trapmf(forecast_peak, 0, 0, 0.8, 2.0)
     peak_med = _trimf(forecast_peak, 1.5, 3.0, 5.0)
     peak_high = _trapmf(forecast_peak, 4.0, 6.0, 10.0, 20.0)
-
-    # step delta (current_peak - prev_peak), allow negative
     delta_down = _trapmf(step_delta, -5.0, -5.0, -0.25, 0.0)
     delta_flat = _trimf(step_delta, -0.15, 0.0, 0.15)
     delta_up = _trapmf(step_delta, 0.0, 0.25, 5.0, 5.0)
 
-    # ---- rule base (Mamdani: AND=min, OR=max) ----
-    # Output universe risk in [0, 1]
     y = np.linspace(0.0, 1.0, 401)
 
     def out_low(yy):
@@ -354,36 +299,27 @@ def fuzzy_risk_mamdani(forecast_total: float, forecast_peak: float, step_delta: 
     def out_high(yy):
         return np.array([_trapmf(v, 0.65, 0.80, 1.0, 1.0) for v in yy])
 
-    # Rule strengths
-    r1 = min(total_high, peak_high)                      # IF total high AND peak high -> high
-    r2 = min(total_high, max(peak_med, delta_up))        # IF total high AND (peak med OR delta up) -> high
-    r3 = min(total_med, peak_high)                       # IF total med AND peak high -> high
+    r1 = min(total_high, peak_high)
+    r2 = min(total_high, max(peak_med, delta_up))
+    r3 = min(total_med, peak_high)
+    r4 = min(total_med, peak_med)
+    r5 = min(total_high, peak_low)
+    r6 = min(total_low, peak_low)
+    r7 = min(total_low, max(peak_med, peak_high))
+    r8 = min(total_med, peak_low)
+    r9 = min(delta_down, max(total_low, peak_low))
 
-    r4 = min(total_med, peak_med)                        # IF total med AND peak med -> med
-    r5 = min(total_high, peak_low)                       # IF total high AND peak low -> med
-
-    r6 = min(total_low, peak_low)                        # IF total low AND peak low -> low
-    r7 = min(total_low, max(peak_med, peak_high))        # IF total low AND (peak med/high) -> med
-    r8 = min(total_med, peak_low)                        # IF total med AND peak low -> low-ish
-
-    # Trend influence: if delta down and everything low-ish => reduce
-    r9 = min(delta_down, max(total_low, peak_low))       # IF delta down AND (total low OR peak low) -> low
-
-    # Aggregate output membership
     agg = np.zeros_like(y)
     agg = np.maximum(agg, np.minimum(r1, out_high(y)))
     agg = np.maximum(agg, np.minimum(r2, out_high(y)))
     agg = np.maximum(agg, np.minimum(r3, out_high(y)))
-
     agg = np.maximum(agg, np.minimum(r4, out_med(y)))
     agg = np.maximum(agg, np.minimum(r5, out_med(y)))
     agg = np.maximum(agg, np.minimum(r7, out_med(y)))
-
     agg = np.maximum(agg, np.minimum(r6, out_low(y)))
     agg = np.maximum(agg, np.minimum(r8, out_low(y)))
     agg = np.maximum(agg, np.minimum(r9, out_low(y)))
 
-    # Defuzzify (centroid)
     if float(np.sum(agg)) <= 1e-9:
         risk = 0.0
     else:
@@ -428,15 +364,12 @@ def view_data():
 
 @app.route("/save", methods=["POST"])
 def save_data():
-    """Save ONE observed feature input row into input.csv."""
     try:
         data = request.json or {}
         row = build_feature_row_from_json(data)
-
         errs = validate_feature_ranges(row)
         if errs:
             return jsonify({"error": "Invalid input: " + ", ".join(errs)}), 400
-
         df = pd.DataFrame([row])
         df.to_csv(INPUT_CSV_PATH, mode="a", index=False, header=not INPUT_CSV_PATH.exists())
         return jsonify({"message": "Observed input saved successfully!", "path": str(INPUT_CSV_PATH)})
@@ -446,11 +379,9 @@ def save_data():
 
 @app.route("/bulk_upload", methods=["POST"])
 def bulk_upload():
-    """Upload/append future rainfall scenario into bulk_save.csv."""
     try:
         data = request.json or {}
         overwrite = bool(data.get("overwrite", False))
-
         rows = []
         if "rain_series" in data and isinstance(data["rain_series"], list):
             for v in data["rain_series"]:
@@ -461,24 +392,18 @@ def bulk_upload():
             if count <= 0:
                 return jsonify({"error": "Provide rain_series (list) OR rain_mm + count"}), 400
             rows = [{"rain_mm": rain_mm} for _ in range(count)]
-
         df = pd.DataFrame(rows)
-
         if overwrite and BULK_CSV_PATH.exists():
             BULK_CSV_PATH.unlink()
         df.to_csv(BULK_CSV_PATH, mode="a", index=False, header=not BULK_CSV_PATH.exists())
-
         if overwrite:
             _write_cursor(0)
-
-        return jsonify(
-            {
-                "message": f"Scenario uploaded ({len(df)} rows).",
-                "path": str(BULK_CSV_PATH),
-                "cursor_idx": _read_cursor(),
-                "note": "Simulation consumes 1 step per prediction call.",
-            }
-        )
+        return jsonify({
+            "message": f"Scenario uploaded ({len(df)} rows).",
+            "path": str(BULK_CSV_PATH),
+            "cursor_idx": _read_cursor(),
+            "note": "Simulation consumes 1 step per prediction call.",
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -494,7 +419,6 @@ def bulk_reset():
 
 @app.route("/reset_auto_history", methods=["POST"])
 def reset_auto_history():
-    """Reset auto-rolled rain history and last forecast."""
     try:
         if OBS_RAIN_PATH.exists():
             OBS_RAIN_PATH.unlink()
@@ -507,7 +431,6 @@ def reset_auto_history():
 
 @app.route("/predict", methods=["POST"])
 def predict():
-    """Predict 3-hour rainfall series + fuzzy flood risk."""
     try:
         data = request.json or {}
         simulation_mode = bool(data.get("simulation_mode", False))
@@ -519,7 +442,6 @@ def predict():
             return jsonify({"error": "Invalid input: " + ", ".join(errs)}), 400
 
         current_df = pd.DataFrame([current_row])
-
         rolled_in_mm = None
         mode_used = "model"
 
@@ -535,13 +457,10 @@ def predict():
             if auto_roll and prev_first is not None:
                 rolled_in_mm = prev_first
                 _append_observed_rain(rolled_in_mm)
-
             pred_series = run_model_forecast(current_df)
-
             if auto_roll:
                 _write_last_forecast(pred_series)
 
-        # step_delta = current PEAK - previous PEAK (what you wanted)
         prev_peak = float(max(_read_last_forecast() or [pred_series[0]])) if auto_roll else float(pred_series[0])
         curr_peak = float(np.max(pred_series))
         step_delta = float(curr_peak - prev_peak)
@@ -556,27 +475,23 @@ def predict():
             f"Peak intensity: {forecast_peak:.2f} mm per {DATA_FREQ_MIN} min",
             f"Step delta (peak vs last call): {step_delta:+.2f} mm",
         ]
-        # include fuzzy membership summary (helps testing)
         explanation.extend(fuzzy_why)
 
-        return jsonify(
-            {
-                "mode": mode_used,
-                "risk_engine": "fuzzy_mamdani",
-                "auto_roll": auto_roll,
-                "rolled_in_rain_mm": rolled_in_mm,
-                "forecast_series_mm": pred_series.tolist(),
-                "flood_risk_confidence": float(risk_conf),
-                "alert_level": alert_level,
-                "explanation": explanation,
-                "forecast_horizon_hours": round((HORIZON_STEPS * DATA_FREQ_MIN) / 60, 2),
-                "forecast_total_mm": forecast_total,
-                "forecast_peak_mm_per_step": forecast_peak,
-                "data_frequency_minutes": DATA_FREQ_MIN,
-                "simulation_cursor_idx": _read_cursor() if mode_used == "simulation" else None,
-            }
-        )
-
+        return jsonify({
+            "mode": mode_used,
+            "risk_engine": "fuzzy_mamdani",
+            "auto_roll": auto_roll,
+            "rolled_in_rain_mm": rolled_in_mm,
+            "forecast_series_mm": pred_series.tolist(),
+            "flood_risk_confidence": float(risk_conf),
+            "alert_level": alert_level,
+            "explanation": explanation,
+            "forecast_horizon_hours": round((HORIZON_STEPS * DATA_FREQ_MIN) / 60, 2),
+            "forecast_total_mm": forecast_total,
+            "forecast_peak_mm_per_step": forecast_peak,
+            "data_frequency_minutes": DATA_FREQ_MIN,
+            "simulation_cursor_idx": _read_cursor() if mode_used == "simulation" else None,
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -591,7 +506,6 @@ def get_data():
         if not csv_path.exists():
             return jsonify({"data": [], "total": 0, "page": page, "per_page": per_page, "total_pages": 0})
         df = pd.read_csv(csv_path)
-        # Replace NaN with 0 to avoid JSON serialization issues
         df = df.fillna(0)
         total = len(df)
         total_pages = math.ceil(total / per_page)
