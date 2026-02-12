@@ -68,23 +68,24 @@ except Exception as e:
 
 # -----------------------------
 # PATCH 2: Fix 'str has no attribute name' in mixed_precision policy
-# Older saved models store LSTM dtype as plain string; newer tf_keras expects Policy object
+# base_layer.py imports get_policy directly so we must patch _set_dtype_policy instead
 # -----------------------------
 try:
+    from tf_keras.src.engine import base_layer as _base_layer
     from tf_keras.src.mixed_precision import policy as _mp_policy
 
-    _orig_get_policy = _mp_policy.get_policy
+    _orig_set_dtype_policy = _base_layer.BaseLayer._set_dtype_policy
 
-    def _patched_get_policy(identifier):
-        try:
-            return _orig_get_policy(identifier)
-        except AttributeError:
-            if isinstance(identifier, str):
-                return _mp_policy.Policy(identifier)
-            raise
+    def _patched_set_dtype_policy(self, dtype):
+        if isinstance(dtype, str):
+            try:
+                dtype = _mp_policy.Policy(dtype)
+            except Exception:
+                pass
+        _orig_set_dtype_policy(self, dtype)
 
-    _mp_policy.get_policy = _patched_get_policy
-    print("PATCH 2 applied: mixed_precision policy string fix.")
+    _base_layer.BaseLayer._set_dtype_policy = _patched_set_dtype_policy
+    print("PATCH 2 applied: _set_dtype_policy string->Policy fix.")
 except Exception as e:
     print(f"Warning: PATCH 2 failed: {e}")
 
