@@ -91,11 +91,11 @@ print(f"Loading model from {MODEL_PATH}...")
 model = tf.keras.models.load_model(str(MODEL_PATH))
 print("Model loaded successfully!")
 
-# Warm up model so first real prediction is fast
-print("Warming up model...")
-_dummy = np.zeros((1, SEQUENCE_LENGTH, N_FEATURES), dtype=np.float32)
-model.predict(_dummy, verbose=0)
-print("Model ready!")
+# Warm up model
+dummy_input = np.zeros((1, SEQUENCE_LENGTH, N_FEATURES), dtype=np.float32)
+_ = model.predict(dummy_input, verbose=0)
+print("Model warm-up complete!")
+
 
 # -----------------------------
 # Input validation ranges (UI + API)
