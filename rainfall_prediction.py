@@ -70,7 +70,8 @@ if not MODEL_PATH.exists():
     )
 
 print(f"Loading model from {MODEL_PATH}...")
-model = tf.keras.models.load_model(str(MODEL_PATH))
+import tf_keras
+model = tf_keras.models.load_model(str(MODEL_PATH))
 print("Model loaded successfully!")
 
 # Simple scaler - 19 features (matching original model)
