@@ -24,11 +24,12 @@ from pathlib import Path
 from typing import List, Tuple
 
 import numpy as np
+import threading
 import pandas as pd
 import tensorflow as tf
 from flask import Flask, jsonify, render_template, request
 from sklearn.preprocessing import MinMaxScaler
-
+model_lock = threading.Lock()
 # -----------------------------
 # App + Paths
 # -----------------------------
@@ -93,7 +94,7 @@ print("Model loaded successfully!")
 
 # Warm up model
 dummy_input = np.zeros((1, SEQUENCE_LENGTH, N_FEATURES), dtype=np.float32)
-_ = model.predict(dummy_input, verbose=0)
+_ = model(dummy_input, training=False)
 print("Model warm-up complete!")
 
 
@@ -237,14 +238,16 @@ def build_feature_row_from_json(data: dict) -> dict:
 
 
 def run_model_forecast(window_df: pd.DataFrame) -> np.ndarray:
-    """Run model using simple scaler - works with original rainfall_model.keras."""
     row = window_df.iloc[-1]
     feature_values = [coerce_float(row[c] if c in row.index else 0.0) for c in FEATURE_COLS]
     scaled_input = scaler.transform([feature_values])[0]
-    input_sequence = np.array([scaled_input] * SEQUENCE_LENGTH)
+    input_sequence = np.array([scaled_input] * SEQUENCE_LENGTH, dtype=np.float32)
     input_sequence = input_sequence.reshape((1, SEQUENCE_LENGTH, N_FEATURES))
-    prediction = model.predict(input_sequence, verbose=0)
-    base_val = float(prediction[0][0])
+    
+    with model_lock:
+        prediction = model(input_sequence, training=False)
+        base_val = float(prediction.numpy()[0][0])
+    
     series = np.maximum(0, np.array([base_val] * HORIZON_STEPS, dtype=float))
     return series
 
@@ -527,9 +530,9 @@ def predict():
                 _write_last_forecast(pred_series)
 
         # step_delta = current PEAK - previous PEAK (what you wanted)
-        prev_peak = float(max(_read_last_forecast() or [pred_series[0]])) if auto_roll else float(pred_series[0])
+        prev_peak = float(max(prev)) if prev else float(pred_series[0])
         curr_peak = float(np.max(pred_series))
-        step_delta = float(curr_peak - prev_peak)
+        step_delta = curr_peak - prev_peak
 
         forecast_total = float(np.sum(np.maximum(pred_series, 0.0)))
         forecast_peak = float(np.max(np.maximum(pred_series, 0.0)))

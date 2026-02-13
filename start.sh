@@ -1,1 +1,1 @@
-gunicorn --bind 0.0.0.0:10000 --timeout 120 --workers 1 rainfall_prediction:app
+gunicorn rainfall_prediction:app --bind 0.0.0.0:$PORT --timeout 180 --workers 1 --threads 4
