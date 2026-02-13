@@ -3,8 +3,8 @@
 
 **Version:** 1.0  
 **Last Updated:** February 2026  
-**Deployed URL:** https://ict-306.onrender.com  
-**Repository:** https://github.com/diyanashamil/ict-306
+**Deployed URL:** https://ict-304.onrender.com  
+**Repository:** https://github.com/diyanashamil/ict-304
 
 ---
 
@@ -184,8 +184,8 @@ datetime,p,T,Tpot,Tdew,rh,VPmax,VPact,VPdef,sh,H2OC,rho,wv,max_wv,wd,rain,rainin
 ### **Local Development**
 ```bash
 # Clone repository
-git clone https://github.com/diyanashamil/ict-306.git
-cd ict-306
+git clone https://github.com/diyanashamil/ict-304.git
+cd ict-304
 
 # Create virtual environment
 python3 -m venv venv
@@ -214,7 +214,7 @@ python rainfall_prediction.py
 3. Builds environment (installs dependencies)
 4. Downloads model from Google Drive
 5. Starts Gunicorn server
-6. Live at: https://ict-306.onrender.com
+6. Live at: https://ict-304.onrender.com
 
 **Configuration Files:**
 - `render.yaml` - Deployment settings
@@ -316,7 +316,7 @@ python rainfall_prediction.py
 
 ## 📁 File Structure
 ```
-ict-306/
+ict-304/
 ├── rainfall_prediction.py      # Main Flask application
 ├── model.py                     # Model definition (reference)
 ├── requirements.txt             # Python dependencies
@@ -369,7 +369,7 @@ ict-306/
 
 ## 🎓 How to Use
 
-1. **Access:** https://ict-306.onrender.com
+1. **Access:** https://ict-304.onrender.com
 2. **Fill all 19 weather parameters**
 3. **Click "Submit Data"** to save (optional)
 4. **Click "Predict Rainfall"** to get forecast
@@ -411,14 +411,14 @@ ict-306/
 
 **Developer:** Diyana  
 **Institution:** Murdoch University Singapore  
-**Course:** ICT 306  
+**Course:** ICT 304  
 **Framework:** TensorFlow/Keras + Flask
 
 ---
 
 ## 📞 Support
 
-**Issues:** https://github.com/diyanashamil/ict-306/issues  
+**Issues:** https://github.com/diyanashamil/ict-304/issues  
 **Email:** Contact via GitHub
 
 ---
