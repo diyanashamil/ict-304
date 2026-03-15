@@ -91,14 +91,14 @@ def create_dataset(csv_path, batch_size=BATCH_SIZE):
             print(f"  Skipping {row['S1Hand']}: {e}")
             continue
     
-    images = np.array(images)
-    masks = np.array(masks)
+    images = np.array(images, dtype=np.float32)
+    masks = np.array(masks, dtype=np.float32)
     
     print(f"Dataset loaded: {len(images)} images, shape={images.shape}")
     
-    # Create TF dataset
+    # Create TF dataset - don't batch yet to avoid shape issues
     dataset = tf.data.Dataset.from_tensor_slices((images, masks))
-    dataset = dataset.shuffle(1000).batch(batch_size).prefetch(tf.data.AUTOTUNE)
+    dataset = dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
     
     return dataset, len(images)
 
