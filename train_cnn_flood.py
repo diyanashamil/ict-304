@@ -7,12 +7,15 @@ import os
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
-import cv2
+import keras
+from keras import layers
+import rasterio
 from pathlib import Path
 from sklearn.model_selection import train_test_split
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from skimage.transform import resize
 
 # Paths
 BASE_DIR = Path(__file__).parent
@@ -25,7 +28,7 @@ MODEL_DIR = BASE_DIR / "models"
 MODEL_DIR.mkdir(exist_ok=True)
 
 # Hyperparameters
-IMG_SIZE = 256  # Resize images to 256x256
+IMG_SIZE = 256
 BATCH_SIZE = 8
 EPOCHS = 20
 LEARNING_RATE = 1e-4
@@ -33,37 +36,28 @@ LEARNING_RATE = 1e-4
 
 def load_image_pair(s1_filename, label_filename):
     """Load and preprocess satellite image and flood mask."""
-    # Load Sentinel-1 image (grayscale SAR)
     s1_path = S1_DIR / s1_filename
-    img = cv2.imread(str(s1_path), cv2.IMREAD_UNCHANGED)
     
-    if img is None:
-        raise FileNotFoundError(f"Image not found: {s1_path}")
+    with rasterio.open(str(s1_path)) as src:
+        img = src.read(1)
     
-    # Resize to IMG_SIZE x IMG_SIZE
-    img = cv2.resize(img, (IMG_SIZE, IMG_SIZE))
-    
-    # Normalize to [0, 1]
-    if img.dtype == np.uint16:
-        img = img.astype(np.float32) / 65535.0
-    else:
-        img = img.astype(np.float32) / 255.0
-    
-    # Ensure 3 channels (repeat grayscale)
-    if len(img.shape) == 2:
-        img = np.stack([img, img, img], axis=-1)
-    
-    # Load flood mask
     label_path = LABEL_DIR / label_filename
-    mask = cv2.imread(str(label_path), cv2.IMREAD_GRAYSCALE)
     
-    if mask is None:
-        raise FileNotFoundError(f"Mask not found: {label_path}")
+    with rasterio.open(str(label_path)) as src:
+        mask = src.read(1)
     
-    mask = cv2.resize(mask, (IMG_SIZE, IMG_SIZE))
+    img = resize(img, (IMG_SIZE, IMG_SIZE), preserve_range=True, anti_aliasing=True)
+    mask = resize(mask, (IMG_SIZE, IMG_SIZE), preserve_range=True, anti_aliasing=False, order=0)
     
-    # Binary mask: 0 = no flood, 1 = flood
-    # Assuming flood pixels are non-zero in the mask
+    img_min, img_max = img.min(), img.max()
+    if img_max > img_min:
+        img = (img - img_min) / (img_max - img_min)
+    else:
+        img = np.zeros_like(img)
+    
+    img = img.astype(np.float32)
+    img = np.stack([img, img, img], axis=-1)
+    
     mask = (mask > 0).astype(np.float32)
     mask = np.expand_dims(mask, axis=-1)
     
@@ -96,7 +90,6 @@ def create_dataset(csv_path, batch_size=BATCH_SIZE):
     
     print(f"Dataset loaded: {len(images)} images, shape={images.shape}")
     
-    # Create TF dataset - don't batch yet to avoid shape issues
     dataset = tf.data.Dataset.from_tensor_slices((images, masks))
     dataset = dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
     
@@ -104,10 +97,9 @@ def create_dataset(csv_path, batch_size=BATCH_SIZE):
 
 
 def build_unet(input_shape=(IMG_SIZE, IMG_SIZE, 3)):
-    """Build U-Net architecture for flood segmentation."""
+    """Build U-Net architecture."""
     inputs = keras.Input(shape=input_shape)
     
-    # Encoder (downsampling)
     c1 = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(inputs)
     c1 = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(c1)
     p1 = layers.MaxPooling2D((2, 2))(c1)
@@ -124,11 +116,9 @@ def build_unet(input_shape=(IMG_SIZE, IMG_SIZE, 3)):
     c4 = layers.Conv2D(512, (3, 3), activation='relu', padding='same')(c4)
     p4 = layers.MaxPooling2D((2, 2))(c4)
     
-    # Bottleneck
     c5 = layers.Conv2D(1024, (3, 3), activation='relu', padding='same')(p4)
     c5 = layers.Conv2D(1024, (3, 3), activation='relu', padding='same')(c5)
     
-    # Decoder (upsampling)
     u6 = layers.Conv2DTranspose(512, (2, 2), strides=(2, 2), padding='same')(c5)
     u6 = layers.concatenate([u6, c4])
     c6 = layers.Conv2D(512, (3, 3), activation='relu', padding='same')(u6)
@@ -149,7 +139,6 @@ def build_unet(input_shape=(IMG_SIZE, IMG_SIZE, 3)):
     c9 = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(u9)
     c9 = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(c9)
     
-    # Output layer
     outputs = layers.Conv2D(1, (1, 1), activation='sigmoid')(c9)
     
     model = keras.Model(inputs=[inputs], outputs=[outputs])
@@ -157,21 +146,18 @@ def build_unet(input_shape=(IMG_SIZE, IMG_SIZE, 3)):
 
 
 def dice_coefficient(y_true, y_pred, smooth=1):
-    """Dice coefficient for evaluation."""
-    y_true_f = tf.keras.backend.flatten(y_true)
-    y_pred_f = tf.keras.backend.flatten(y_pred)
-    intersection = tf.keras.backend.sum(y_true_f * y_pred_f)
-    return (2. * intersection + smooth) / (tf.keras.backend.sum(y_true_f) + tf.keras.backend.sum(y_pred_f) + smooth)
+    y_true_f = keras.backend.flatten(y_true)
+    y_pred_f = keras.backend.flatten(y_pred)
+    intersection = keras.backend.sum(y_true_f * y_pred_f)
+    return (2. * intersection + smooth) / (keras.backend.sum(y_true_f) + keras.backend.sum(y_pred_f) + smooth)
 
 
 def dice_loss(y_true, y_pred):
-    """Dice loss for training."""
     return 1 - dice_coefficient(y_true, y_pred)
 
 
 def combined_loss(y_true, y_pred):
-    """Combined binary crossentropy + dice loss."""
-    bce = tf.keras.losses.binary_crossentropy(y_true, y_pred)
+    bce = keras.losses.binary_crossentropy(y_true, y_pred)
     dice = dice_loss(y_true, y_pred)
     return bce + dice
 
@@ -181,19 +167,16 @@ if __name__ == "__main__":
     print("Subsystem B: CNN Flood Detection Training")
     print("=" * 60)
     
-    # Load datasets
     train_dataset, train_size = create_dataset(TRAIN_CSV)
     val_dataset, val_size = create_dataset(VAL_CSV)
     
     print(f"\nTraining samples: {train_size}")
     print(f"Validation samples: {val_size}")
     
-    # Build model
     print("\nBuilding U-Net model...")
     model = build_unet()
     model.summary()
     
-    # Compile
     model.compile(
         optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE),
         loss=combined_loss,
@@ -205,7 +188,6 @@ if __name__ == "__main__":
         ]
     )
     
-    # Callbacks
     callbacks = [
         keras.callbacks.ModelCheckpoint(
             MODEL_DIR / "flood_cnn_best.keras",
@@ -227,7 +209,6 @@ if __name__ == "__main__":
         )
     ]
     
-    # Train
     print("\nStarting training...")
     history = model.fit(
         train_dataset,
@@ -236,11 +217,9 @@ if __name__ == "__main__":
         callbacks=callbacks
     )
     
-    # Save final model
     model.save(MODEL_DIR / "flood_cnn_final.keras")
     print(f"\nModel saved to {MODEL_DIR / 'flood_cnn_final.keras'}")
     
-    # Plot training history
     plt.figure(figsize=(12, 4))
     
     plt.subplot(1, 3, 1)
