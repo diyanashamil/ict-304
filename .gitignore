@@ -23,3 +23,15 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+# Dataset (too large for git)
+data/satellite/
+sen1floods11-essentials.zip
+
+# Model files
+models/*.keras
+models/*.png
+
+# Python cache
+__pycache__/
+*.pyc
+venv/
