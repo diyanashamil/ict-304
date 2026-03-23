@@ -126,6 +126,7 @@ def coerce_float(x, default=0.0) -> float:
         return float(default)
 
 
+
 def validate_feature_ranges(row: dict) -> List[str]:
     errs: List[str] = []
     for k, (lo, hi) in FEATURE_RANGES.items():
@@ -411,6 +412,10 @@ def fuzzy_risk_mamdani(forecast_total: float, forecast_peak: float, step_delta: 
 def home():
     return render_template("index.html")
 
+@app.route("/subsystem_a")
+def subsystem_a_page():
+    """Subsystem A page - LSTM rainfall forecasting."""
+    return render_template("index_old.html")
 
 @app.route("/docs")
 def documentation():
