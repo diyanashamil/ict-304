@@ -29,11 +29,13 @@ class ConvBlock(nn.Module):
 
 
 class UpBlock(nn.Module):
-    """Upsampling block."""
+    """Upsampling block - matches Leslie's pattern."""
     def __init__(self, in_ch, out_ch):
         super().__init__()
+        # Leslie's pattern: upsample FROM in_ch TO out_ch, then concat makes in_ch total
         self.up = nn.ConvTranspose2d(in_ch, out_ch, 2, stride=2)
-        self.conv = ConvBlock(in_ch, out_ch)
+        # After concat with skip: out_ch + out_ch = in_ch for conv input
+        self.conv = ConvBlock(out_ch * 2, out_ch)
     
     def forward(self, x, skip):
         x = self.up(x)
@@ -47,20 +49,20 @@ class UNet(nn.Module):
     def __init__(self, in_channels=9, out_channels=1, base_channels=32):
         super().__init__()
         
-        # Encoder
-        self.enc1 = ConvBlock(in_channels, base_channels)
-        self.enc2 = ConvBlock(base_channels, base_channels * 2)
-        self.enc3 = ConvBlock(base_channels * 2, base_channels * 4)
-        self.enc4 = ConvBlock(base_channels * 4, base_channels * 8)
+        # Encoder - goes UP: 32 → 64 → 128 → 256
+        self.enc1 = ConvBlock(in_channels, base_channels)           # 32
+        self.enc2 = ConvBlock(base_channels, base_channels * 2)     # 64
+        self.enc3 = ConvBlock(base_channels * 2, base_channels * 4) # 128
+        self.enc4 = ConvBlock(base_channels * 4, base_channels * 8) # 256
         
         # Bottleneck
-        self.bottleneck = ConvBlock(base_channels * 8, base_channels * 16)
+        self.bottleneck = ConvBlock(base_channels * 8, base_channels * 16)  # 512
         
-        # Decoder
-        self.dec4 = UpBlock(base_channels * 16, base_channels * 8)
-        self.dec3 = UpBlock(base_channels * 8, base_channels * 4)
-        self.dec2 = UpBlock(base_channels * 4, base_channels * 2)
-        self.dec1 = UpBlock(base_channels * 2, base_channels)
+        # Decoder - goes DOWN: 256 → 128 → 64 → 32 (REVERSED to match Leslie)
+        self.dec4 = UpBlock(base_channels * 16, base_channels * 8)  # 512→256
+        self.dec3 = UpBlock(base_channels * 8, base_channels * 4)   # 256→128
+        self.dec2 = UpBlock(base_channels * 4, base_channels * 2)   # 128→64
+        self.dec1 = UpBlock(base_channels * 2, base_channels)       # 64→32
         
         # Output
         self.out = nn.Conv2d(base_channels, out_channels, 1)
@@ -77,7 +79,7 @@ class UNet(nn.Module):
         # Bottleneck
         bottleneck = self.bottleneck(self.pool(enc4))
         
-        # Decoder
+        # Decoder - REVERSED order to match Leslie
         dec4 = self.dec4(bottleneck, enc4)
         dec3 = self.dec3(dec4, enc3)
         dec2 = self.dec2(dec3, enc2)
