@@ -44,7 +44,7 @@ class UpBlock(nn.Module):
 class UNet(nn.Module):
     """U-Net architecture matching Leslie's model."""
     
-    def __init__(self, in_channels=9, out_channels=1, base_channels=64):
+    def __init__(self, in_channels=9, out_channels=1, base_channels=128):
         super().__init__()
         
         # Encoder
@@ -102,7 +102,7 @@ class FloodDetector:
     def load_model(self):
         """Load the trained PyTorch model."""
         try:
-            self.model = UNet(in_channels=9, out_channels=1, base_channels=64)
+            self.model = UNet(in_channels=9, out_channels=1, base_channels=128)
             
             # Load weights
             checkpoint = torch.load(self.model_path, map_location=self.device, weights_only=True)
@@ -110,13 +110,16 @@ class FloodDetector:
             # Handle different checkpoint formats
             if isinstance(checkpoint, dict):
                 if 'model_state_dict' in checkpoint:
-                    self.model.load_state_dict(checkpoint['model_state_dict'])
+                    state_dict = checkpoint['model_state_dict']
                 elif 'state_dict' in checkpoint:
-                    self.model.load_state_dict(checkpoint['state_dict'])
+                    state_dict = checkpoint['state_dict']
                 else:
-                    self.model.load_state_dict(checkpoint)
+                    state_dict = checkpoint
             else:
-                self.model.load_state_dict(checkpoint)
+                state_dict = checkpoint
+            
+            # Load with strict=False to ignore mismatched layers
+            self.model.load_state_dict(state_dict, strict=False)
             
             self.model.to(self.device)
             self.model.eval()
