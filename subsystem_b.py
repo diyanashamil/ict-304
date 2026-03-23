@@ -44,7 +44,7 @@ class UpBlock(nn.Module):
 class UNet(nn.Module):
     """U-Net architecture matching Leslie's model."""
     
-    def __init__(self, in_channels=9, out_channels=1, base_channels=128):
+    def __init__(self, in_channels=9, out_channels=1, base_channels=32):
         super().__init__()
         
         # Encoder
@@ -101,12 +101,39 @@ class FloodDetector:
     
     def load_model(self):
         """Load the trained PyTorch model."""
-        # For now, use mock mode since we can't match Leslie's architecture
-        # TODO: Get exact architecture from Leslie
-        print("⚠️  Using MOCK mode - real model architecture mismatch")
-        print("    Will generate random predictions for demo purposes")
-        print("    Contact Leslie for exact model architecture to enable real predictions")
-        self.model = "MOCK"  # Flag for mock mode
+        try:
+            self.model = UNet(in_channels=9, out_channels=1, base_channels=32)
+            
+            # Load weights
+            checkpoint = torch.load(self.model_path, map_location=self.device, weights_only=True)
+            
+            # Handle different checkpoint formats
+            if isinstance(checkpoint, dict):
+                if 'model_state_dict' in checkpoint:
+                    state_dict = checkpoint['model_state_dict']
+                elif 'state_dict' in checkpoint:
+                    state_dict = checkpoint['state_dict']
+                else:
+                    state_dict = checkpoint
+            else:
+                state_dict = checkpoint
+            
+            # Load with strict=False to handle any minor mismatches
+            missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
+            
+            self.model.to(self.device)
+            self.model.eval()
+            print(f"✓ Leslie's CNN model loaded successfully!")
+            if missing_keys:
+                print(f"  Missing keys: {len(missing_keys)}")
+            if unexpected_keys:
+                print(f"  Unexpected keys: {len(unexpected_keys)}")
+            
+        except Exception as e:
+            print(f"✗ Failed to load CNN model: {e}")
+            print("⚠️  Using MOCK mode - real model architecture mismatch")
+            print("    Will generate random predictions for demo purposes")
+            self.model = "MOCK"
     
     def preprocess_image(self, image_bytes):
         """Preprocess uploaded image for model input."""
