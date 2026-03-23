@@ -31,7 +31,19 @@ sen1floods11-essentials.zip
 models/*.keras
 models/*.png
 
+data/
+*.log
 # Python cache
 __pycache__/
 *.pyc
 venv/
+
+
+models/best_flood_early_warning_unet.pt
+echo "data/" >> .gitignore
+echo "*.log" >> .gitignore
+# Big files - don't push to GitHub
+models/best_flood_early_warning_unet.pt
+data/
+*.log
+__pycache__/
