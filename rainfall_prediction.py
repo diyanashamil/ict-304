@@ -29,6 +29,10 @@ import pandas as pd
 import tensorflow as tf
 from flask import Flask, jsonify, render_template, request
 from sklearn.preprocessing import MinMaxScaler
+from subsystem_b import FloodDetector
+from werkzeug.utils import secure_filename
+import io
+
 model_lock = threading.Lock()
 # -----------------------------
 # App + Paths
@@ -96,6 +100,10 @@ print("Model loaded successfully!")
 dummy_input = np.zeros((1, SEQUENCE_LENGTH, N_FEATURES), dtype=np.float32)
 _ = model(dummy_input, training=False)
 print("Model warm-up complete!")
+
+# Load Subsystem B (CNN Flood Detection)
+CNN_MODEL_PATH = MODELS_DIR / "best_flood_early_warning_unet.pt"
+flood_detector = FloodDetector(str(CNN_MODEL_PATH))
 
 
 # -----------------------------
@@ -414,6 +422,12 @@ def view_data():
     return render_template("data_view.html")
 
 
+@app.route("/subsystem_b")
+def subsystem_b_page():
+    """Subsystem B page - CNN satellite flood detection."""
+    return render_template("subsystem_b.html")
+
+
 @app.route("/save", methods=["POST"])
 def save_data():
     """Save ONE observed feature input row into input.csv."""
@@ -565,6 +579,42 @@ def predict():
             }
         )
 
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/predict_image", methods=["POST"])
+def predict_image():
+    """Predict flood from uploaded satellite image (Subsystem B: CNN)."""
+    try:
+        if 'image' not in request.files:
+            return jsonify({"error": "No image file provided"}), 400
+        
+        file = request.files['image']
+        
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
+        
+        # Read image bytes
+        image_bytes = file.read()
+        
+        # Predict using CNN
+        result, error = flood_detector.predict(image_bytes)
+        
+        if error:
+            return jsonify({"error": error}), 500
+        
+        return jsonify({
+            "mode": "cnn_satellite",
+            "subsystem": "B",
+            "flood_percentage": result['flood_percentage'],
+            "avg_confidence": result['avg_confidence'],
+            "max_confidence": result['max_confidence'],
+            "alert_level": result['risk_level'],
+            "risk_confidence": result['risk_confidence'],
+            "explanation": result['explanation']
+        })
+    
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
