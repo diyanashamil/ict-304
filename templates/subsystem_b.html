@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subsystem B: Satellite Flood Detection | FloodGuard SEA</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🛰️ FloodGuard SEA - Subsystem B</h1>
+            <p class="subtitle">CNN-Based Satellite Flood Detection</p>
+            <nav class="tabs">
+                <a href="/">Subsystem A (LSTM Rainfall)</a>
+                <a href="/subsystem_b" class="active">Subsystem B (CNN Satellite)</a>
+            </nav>
+        </header>
+
+        <main>
+            <section class="upload-section">
+                <h2>Upload Satellite Image</h2>
+                <p>Upload a satellite image (Sentinel-2 or similar) to detect flood areas.</p>
+                
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <div class="file-upload">
+                        <input type="file" id="imageFile" name="image" accept="image/*" required>
+                        <label for="imageFile" class="file-label">
+                            <span id="fileName">Choose satellite image...</span>
+                        </label>
+                    </div>
+                    
+                    <button type="submit" class="predict-btn">🔍 Analyze Image</button>
+                </form>
+
+                <div id="imagePreview" class="image-preview hidden">
+                    <h3>Uploaded Image</h3>
+                    <img id="previewImg" src="" alt="Preview">
+                </div>
+            </section>
+
+            <section id="results" class="results hidden">
+                <h2>Flood Detection Results</h2>
+                
+                <div class="alert-box" id="alertBox">
+                    <div class="alert-level" id="alertLevel"></div>
+                    <div class="alert-details">
+                        <div class="metric">
+                            <span class="label">Flood Coverage:</span>
+                            <span class="value" id="floodPct">--</span>
+                        </div>
+                        <div class="metric">
+                            <span class="label">Average Confidence:</span>
+                            <span class="value" id="avgConf">--</span>
+                        </div>
+                        <div class="metric">
+                            <span class="label">Risk Level:</span>
+                            <span class="value" id="riskLevel">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="explanation-box">
+                    <h3>Analysis Details</h3>
+                    <ul id="explanationList"></ul>
+                </div>
+            </section>
+
+            <section id="error" class="error-box hidden">
+                <strong>Error:</strong> <span id="errorMsg"></span>
+            </section>
+
+            <section id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Analyzing satellite image...</p>
+            </section>
+        </main>
+
+        <footer>
+            <p>FloodGuard SEA © 2026 | ICT304 AI Systems Design</p>
+        </footer>
+    </div>
+
+    <script>
+        const form = document.getElementById('uploadForm');
+        const fileInput = document.getElementById('imageFile');
+        const fileName = document.getElementById('fileName');
+        const imagePreview = document.getElementById('imagePreview');
+        const previewImg = document.getElementById('previewImg');
+        const results = document.getElementById('results');
+        const error = document.getElementById('error');
+        const loading = document.getElementById('loading');
+
+        // File input change handler
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                fileName.textContent = file.name;
+                
+                // Show preview
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    previewImg.src = e.target.result;
+                    imagePreview.classList.remove('hidden');
+                };
+                reader.readAsDataURL(file);
+            } else {
+                fileName.textContent = 'Choose satellite image...';
+                imagePreview.classList.add('hidden');
+            }
+        });
+
+        // Form submit handler
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const file = fileInput.files[0];
+            if (!file) {
+                showError('Please select an image file');
+                return;
+            }
+
+            // Show loading
+            results.classList.add('hidden');
+            error.classList.add('hidden');
+            loading.classList.remove('hidden');
+
+            const formData = new FormData();
+            formData.append('image', file);
+
+            try {
+                const response = await fetch('/predict_image', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Prediction failed');
+                }
+
+                displayResults(data);
+
+            } catch (err) {
+                showError(err.message);
+            } finally {
+                loading.classList.add('hidden');
+            }
+        });
+
+        function displayResults(data) {
+            // Alert level color
+            const alertColors = {
+                'Green': '#28a745',
+                'Yellow': '#ffc107',
+                'Orange': '#fd7e14',
+                'Red': '#dc3545'
+            };
+
+            const alertLevel = document.getElementById('alertLevel');
+            alertLevel.textContent = data.alert_level || 'Unknown';
+            alertLevel.style.backgroundColor = alertColors[data.alert_level] || '#6c757d';
+
+            // Metrics
+            document.getElementById('floodPct').textContent = `${data.flood_percentage.toFixed(1)}%`;
+            document.getElementById('avgConf').textContent = `${data.avg_confidence.toFixed(1)}%`;
+            document.getElementById('riskLevel').textContent = data.alert_level;
+
+            // Explanation
+            const explanationList = document.getElementById('explanationList');
+            explanationList.innerHTML = '';
+            data.explanation.forEach(line => {
+                const li = document.createElement('li');
+                li.textContent = line;
+                explanationList.appendChild(li);
+            });
+
+            results.classList.remove('hidden');
+        }
+
+        function showError(message) {
+            document.getElementById('errorMsg').textContent = message;
+            error.classList.remove('hidden');
+            results.classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
