@@ -11,42 +11,11 @@ from io import BytesIO
 from pathlib import Path
 
 
-class UNet(nn.Module):
-    """U-Net architecture for flood segmentation."""
-    
-    def __init__(self, in_channels=9, out_channels=1, base_channels=32):
-        super(UNet, self).__init__()
-        
-        # Encoder
-        self.enc1 = self.conv_block(in_channels, base_channels)
-        self.enc2 = self.conv_block(base_channels, base_channels * 2)
-        self.enc3 = self.conv_block(base_channels * 2, base_channels * 4)
-        self.enc4 = self.conv_block(base_channels * 4, base_channels * 8)
-        
-        # Bottleneck
-        self.bottleneck = self.conv_block(base_channels * 8, base_channels * 16)
-        
-        # Decoder
-        self.upconv4 = nn.ConvTranspose2d(base_channels * 16, base_channels * 8, 2, stride=2)
-        self.dec4 = self.conv_block(base_channels * 16, base_channels * 8)
-        
-        self.upconv3 = nn.ConvTranspose2d(base_channels * 8, base_channels * 4, 2, stride=2)
-        self.dec3 = self.conv_block(base_channels * 8, base_channels * 4)
-        
-        self.upconv2 = nn.ConvTranspose2d(base_channels * 4, base_channels * 2, 2, stride=2)
-        self.dec2 = self.conv_block(base_channels * 4, base_channels * 2)
-        
-        self.upconv1 = nn.ConvTranspose2d(base_channels * 2, base_channels, 2, stride=2)
-        self.dec1 = self.conv_block(base_channels * 2, base_channels)
-        
-        # Output
-        self.out = nn.Conv2d(base_channels, out_channels, 1)
-        
-        self.pool = nn.MaxPool2d(2)
-        self.sigmoid = nn.Sigmoid()
-    
-    def conv_block(self, in_ch, out_ch):
-        return nn.Sequential(
+class ConvBlock(nn.Module):
+    """Double convolution block."""
+    def __init__(self, in_ch, out_ch):
+        super().__init__()
+        self.block = nn.Sequential(
             nn.Conv2d(in_ch, out_ch, 3, padding=1),
             nn.BatchNorm2d(out_ch),
             nn.ReLU(inplace=True),
@@ -54,6 +23,49 @@ class UNet(nn.Module):
             nn.BatchNorm2d(out_ch),
             nn.ReLU(inplace=True)
         )
+    
+    def forward(self, x):
+        return self.block(x)
+
+
+class UpBlock(nn.Module):
+    """Upsampling block."""
+    def __init__(self, in_ch, out_ch):
+        super().__init__()
+        self.up = nn.ConvTranspose2d(in_ch, out_ch, 2, stride=2)
+        self.conv = ConvBlock(in_ch, out_ch)
+    
+    def forward(self, x, skip):
+        x = self.up(x)
+        x = torch.cat([x, skip], dim=1)
+        return self.conv(x)
+
+
+class UNet(nn.Module):
+    """U-Net architecture matching Leslie's model."""
+    
+    def __init__(self, in_channels=9, out_channels=1, base_channels=32):
+        super().__init__()
+        
+        # Encoder
+        self.enc1 = ConvBlock(in_channels, base_channels)
+        self.enc2 = ConvBlock(base_channels, base_channels * 2)
+        self.enc3 = ConvBlock(base_channels * 2, base_channels * 4)
+        self.enc4 = ConvBlock(base_channels * 4, base_channels * 8)
+        
+        # Bottleneck
+        self.bottleneck = ConvBlock(base_channels * 8, base_channels * 16)
+        
+        # Decoder
+        self.dec4 = UpBlock(base_channels * 16, base_channels * 8)
+        self.dec3 = UpBlock(base_channels * 8, base_channels * 4)
+        self.dec2 = UpBlock(base_channels * 4, base_channels * 2)
+        self.dec1 = UpBlock(base_channels * 2, base_channels)
+        
+        # Output
+        self.out = nn.Conv2d(base_channels, out_channels, 1)
+        self.pool = nn.MaxPool2d(2)
+        self.sigmoid = nn.Sigmoid()
     
     def forward(self, x):
         # Encoder
@@ -66,21 +78,10 @@ class UNet(nn.Module):
         bottleneck = self.bottleneck(self.pool(enc4))
         
         # Decoder
-        dec4 = self.upconv4(bottleneck)
-        dec4 = torch.cat([dec4, enc4], dim=1)
-        dec4 = self.dec4(dec4)
-        
-        dec3 = self.upconv3(dec4)
-        dec3 = torch.cat([dec3, enc3], dim=1)
-        dec3 = self.dec3(dec3)
-        
-        dec2 = self.upconv2(dec3)
-        dec2 = torch.cat([dec2, enc2], dim=1)
-        dec2 = self.dec2(dec2)
-        
-        dec1 = self.upconv1(dec2)
-        dec1 = torch.cat([dec1, enc1], dim=1)
-        dec1 = self.dec1(dec1)
+        dec4 = self.dec4(bottleneck, enc4)
+        dec3 = self.dec3(dec4, enc3)
+        dec2 = self.dec2(dec3, enc2)
+        dec1 = self.dec1(dec2, enc1)
         
         return self.sigmoid(self.out(dec1))
 
