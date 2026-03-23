@@ -1,17 +1,18 @@
 """
 Subsystem B: CNN Flood Detection from Satellite Images
-Uses Leslie's trained PyTorch U-Net model
+Uses Leslie's trained PyTorch U-Net model - EXACT ARCHITECTURE
 """
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 from PIL import Image
 from io import BytesIO
 from pathlib import Path
 
 
-class ConvBlock(nn.Module):
+class DoubleConv(nn.Module):
     """Double convolution block."""
     def __init__(self, in_ch, out_ch):
         super().__init__()
@@ -28,64 +29,95 @@ class ConvBlock(nn.Module):
         return self.block(x)
 
 
-class UpBlock(nn.Module):
-    """Upsampling block - matches Leslie's pattern."""
-    def __init__(self, in_ch, out_ch):
+class Down(nn.Module):
+    """Down-sampling block: MaxPool -> DoubleConv"""
+    def __init__(self, in_channels, out_channels):
         super().__init__()
-        # Leslie's pattern: upsample FROM in_ch TO out_ch, then concat makes in_ch total
-        self.up = nn.ConvTranspose2d(in_ch, out_ch, 2, stride=2)
-        # After concat with skip: out_ch + out_ch = in_ch for conv input
-        self.conv = ConvBlock(out_ch * 2, out_ch)
+        self.block = nn.Sequential(
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            DoubleConv(in_channels, out_channels),
+        )
     
-    def forward(self, x, skip):
-        x = self.up(x)
-        x = torch.cat([x, skip], dim=1)
+    def forward(self, x):
+        return self.block(x)
+
+
+class Up(nn.Module):
+    """Up-sampling block: ConvTranspose2d -> concatenate skip connection -> DoubleConv"""
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.up = nn.ConvTranspose2d(
+            in_channels=in_channels,
+            out_channels=in_channels // 2,
+            kernel_size=2,
+            stride=2,
+        )
+        self.conv = DoubleConv(in_channels, out_channels)
+    
+    def forward(self, x_decoder, x_skip):
+        x_decoder = self.up(x_decoder)
+        diff_y = x_skip.size(2) - x_decoder.size(2)
+        diff_x = x_skip.size(3) - x_decoder.size(3)
+        x_decoder = F.pad(
+            x_decoder,
+            [
+                diff_x // 2,
+                diff_x - diff_x // 2,
+                diff_y // 2,
+                diff_y - diff_y // 2,
+            ],
+        )
+        x = torch.cat([x_skip, x_decoder], dim=1)
         return self.conv(x)
 
 
 class UNet(nn.Module):
-    """U-Net architecture matching Leslie's model."""
+    """Leslie's exact U-Net architecture."""
     
     def __init__(self, in_channels=9, out_channels=1, base_channels=32):
         super().__init__()
         
-        # Encoder - goes UP: 32 → 64 → 128 → 256
-        self.enc1 = ConvBlock(in_channels, base_channels)           # 32
-        self.enc2 = ConvBlock(base_channels, base_channels * 2)     # 64
-        self.enc3 = ConvBlock(base_channels * 2, base_channels * 4) # 128
-        self.enc4 = ConvBlock(base_channels * 4, base_channels * 8) # 256
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.base_channels = base_channels
         
-        # Bottleneck
-        self.bottleneck = ConvBlock(base_channels * 8, base_channels * 16)  # 512
+        self.enc1 = DoubleConv(in_channels, base_channels)
+        self.enc2 = Down(base_channels, base_channels * 2)
+        self.enc3 = Down(base_channels * 2, base_channels * 4)
+        self.enc4 = Down(base_channels * 4, base_channels * 8)
+        self.bottleneck = Down(base_channels * 8, base_channels * 16)
         
-        # Decoder - goes DOWN: 256 → 128 → 64 → 32 (REVERSED to match Leslie)
-        self.dec4 = UpBlock(base_channels * 16, base_channels * 8)  # 512→256
-        self.dec3 = UpBlock(base_channels * 8, base_channels * 4)   # 256→128
-        self.dec2 = UpBlock(base_channels * 4, base_channels * 2)   # 128→64
-        self.dec1 = UpBlock(base_channels * 2, base_channels)       # 64→32
+        self.dec1 = Up(base_channels * 16, base_channels * 8)
+        self.dec2 = Up(base_channels * 8, base_channels * 4)
+        self.dec3 = Up(base_channels * 4, base_channels * 2)
+        self.dec4 = Up(base_channels * 2, base_channels)
         
-        # Output
-        self.out = nn.Conv2d(base_channels, out_channels, 1)
-        self.pool = nn.MaxPool2d(2)
+        self.out_conv = nn.Conv2d(
+            in_channels=base_channels,
+            out_channels=out_channels,
+            kernel_size=1,
+        )
         self.sigmoid = nn.Sigmoid()
     
     def forward(self, x):
         # Encoder
         enc1 = self.enc1(x)
-        enc2 = self.enc2(self.pool(enc1))
-        enc3 = self.enc3(self.pool(enc2))
-        enc4 = self.enc4(self.pool(enc3))
+        enc2 = self.enc2(enc1)
+        enc3 = self.enc3(enc2)
+        enc4 = self.enc4(enc3)
         
         # Bottleneck
-        bottleneck = self.bottleneck(self.pool(enc4))
+        bottleneck = self.bottleneck(enc4)
         
-        # Decoder - REVERSED order to match Leslie
-        dec4 = self.dec4(bottleneck, enc4)
-        dec3 = self.dec3(dec4, enc3)
-        dec2 = self.dec2(dec3, enc2)
-        dec1 = self.dec1(dec2, enc1)
+        # Decoder
+        dec1 = self.dec1(bottleneck, enc4)
+        dec2 = self.dec2(dec1, enc3)
+        dec3 = self.dec3(dec2, enc2)
+        dec4 = self.dec4(dec3, enc1)
         
-        return self.sigmoid(self.out(dec1))
+        # Output
+        out = self.out_conv(dec4)
+        return self.sigmoid(out)
 
 
 class FloodDetector:
@@ -120,22 +152,16 @@ class FloodDetector:
             else:
                 state_dict = checkpoint
             
-            # Load with strict=False to handle any minor mismatches
-            missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
+            # Load weights
+            self.model.load_state_dict(state_dict)
             
             self.model.to(self.device)
             self.model.eval()
             print(f"✓ Leslie's CNN model loaded successfully!")
-            if missing_keys:
-                print(f"  Missing keys: {len(missing_keys)}")
-            if unexpected_keys:
-                print(f"  Unexpected keys: {len(unexpected_keys)}")
             
         except Exception as e:
             print(f"✗ Failed to load CNN model: {e}")
-            print("⚠️  Using MOCK mode - real model architecture mismatch")
-            print("    Will generate random predictions for demo purposes")
-            self.model = "MOCK"
+            self.model = None
     
     def preprocess_image(self, image_bytes):
         """Preprocess uploaded image for model input."""
@@ -153,7 +179,6 @@ class FloodDetector:
         img_array = np.array(img, dtype=np.float32) / 255.0
         
         # RGB to 9 channels (simulate multi-spectral by repeating/augmenting)
-        # In production, this would be actual Sentinel-2 bands
         r, g, b = img_array[:, :, 0], img_array[:, :, 1], img_array[:, :, 2]
         
         # Create 9 pseudo-channels from RGB
@@ -171,7 +196,7 @@ class FloodDetector:
         
         # Stack into 9-channel tensor
         img_tensor = np.stack(channels, axis=0)
-        img_tensor = torch.from_numpy(img_tensor).unsqueeze(0)  # Add batch dimension
+        img_tensor = torch.from_numpy(img_tensor).unsqueeze(0)
         
         return img_tensor.to(self.device)
     
@@ -180,54 +205,6 @@ class FloodDetector:
         if self.model is None:
             return None, "Model not loaded"
         
-        # MOCK MODE - generate demo predictions
-        if self.model == "MOCK":
-            try:
-                # Just for UI demo - random but realistic predictions
-                import random
-                flood_percentage = random.uniform(15, 45)
-                avg_confidence = random.uniform(60, 85)
-                max_confidence = random.uniform(85, 95)
-                
-                # Determine risk level
-                if flood_percentage < 10:
-                    risk_level = "Green"
-                elif flood_percentage < 30:
-                    risk_level = "Yellow"
-                elif flood_percentage < 60:
-                    risk_level = "Orange"
-                else:
-                    risk_level = "Red"
-                
-                risk_conf = avg_confidence / 100
-                
-                # Create dummy probability map
-                dummy_map = [[random.random() * 0.6 for _ in range(32)] for _ in range(32)]
-                dummy_binary = [[1 if v > 0.45 else 0 for v in row] for row in dummy_map]
-                
-                result = {
-                    'flood_percentage': flood_percentage,
-                    'avg_confidence': avg_confidence,
-                    'max_confidence': max_confidence,
-                    'risk_level': risk_level,
-                    'risk_confidence': risk_conf,
-                    'probability_map': dummy_map,
-                    'binary_mask': dummy_binary,
-                    'explanation': [
-                        "⚠️  DEMO MODE - Using placeholder predictions",
-                        f"Simulated flood detection: {flood_percentage:.1f}% of area",
-                        f"Simulated confidence: {avg_confidence:.1f}%",
-                        "Real predictions require Leslie's model architecture",
-                        "Contact Leslie for exact UNet parameters"
-                    ]
-                }
-                
-                return result, None
-                
-            except Exception as e:
-                return None, str(e)
-        
-        # REAL MODEL MODE (when we get the right architecture)
         try:
             # Preprocess
             img_tensor = self.preprocess_image(image_bytes)
@@ -250,16 +227,14 @@ class FloodDetector:
             # Determine risk level
             if flood_percentage < 10:
                 risk_level = "Green"
-                risk_conf = avg_confidence / 100
             elif flood_percentage < 30:
                 risk_level = "Yellow"
-                risk_conf = avg_confidence / 100
             elif flood_percentage < 60:
                 risk_level = "Orange"
-                risk_conf = avg_confidence / 100
             else:
                 risk_level = "Red"
-                risk_conf = avg_confidence / 100
+            
+            risk_conf = avg_confidence / 100
             
             result = {
                 'flood_percentage': flood_percentage,
