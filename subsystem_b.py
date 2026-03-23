@@ -157,7 +157,7 @@ class FloodDetector:
             
             self.model.to(self.device)
             self.model.eval()
-            print(f"✓ Leslie's CNN model loaded successfully!")
+            print(f"✓ Model loaded successfully!")
             
         except Exception as e:
             print(f"✗ Failed to load CNN model: {e}")
