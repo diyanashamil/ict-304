@@ -101,33 +101,45 @@ class FloodDetector:
     
     def load_model(self):
         """Load the trained PyTorch model."""
-        try:
-            self.model = UNet(in_channels=9, out_channels=1, base_channels=128)
-            
-            # Load weights
-            checkpoint = torch.load(self.model_path, map_location=self.device, weights_only=True)
-            
-            # Handle different checkpoint formats
-            if isinstance(checkpoint, dict):
-                if 'model_state_dict' in checkpoint:
-                    state_dict = checkpoint['model_state_dict']
-                elif 'state_dict' in checkpoint:
-                    state_dict = checkpoint['state_dict']
+        # Try different base_channels values
+        for base_ch in [256, 128, 64, 32]:
+            try:
+                print(f"Trying base_channels={base_ch}...")
+                self.model = UNet(in_channels=9, out_channels=1, base_channels=base_ch)
+                
+                # Load weights
+                checkpoint = torch.load(self.model_path, map_location=self.device, weights_only=True)
+                
+                # Handle different checkpoint formats
+                if isinstance(checkpoint, dict):
+                    if 'model_state_dict' in checkpoint:
+                        state_dict = checkpoint['model_state_dict']
+                    elif 'state_dict' in checkpoint:
+                        state_dict = checkpoint['state_dict']
+                    else:
+                        state_dict = checkpoint
                 else:
                     state_dict = checkpoint
-            else:
-                state_dict = checkpoint
-            
-            # Load with strict=False to ignore mismatched layers
-            self.model.load_state_dict(state_dict, strict=False)
-            
-            self.model.to(self.device)
-            self.model.eval()
-            print("✓ Leslie's CNN model loaded successfully!")
-            
-        except Exception as e:
-            print(f"✗ Failed to load CNN model: {e}")
-            self.model = None
+                
+                # Load with strict=False
+                missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
+                
+                self.model.to(self.device)
+                self.model.eval()
+                print(f"✓ Leslie's CNN model loaded successfully with base_channels={base_ch}!")
+                if missing_keys:
+                    print(f"  Missing keys: {len(missing_keys)}")
+                if unexpected_keys:
+                    print(f"  Unexpected keys: {len(unexpected_keys)}")
+                return  # Success!
+                
+            except Exception as e:
+                print(f"  Failed with base_channels={base_ch}: {e}")
+                continue
+        
+        # All attempts failed
+        print("✗ Failed to load CNN model with any base_channels value")
+        self.model = None
     
     def preprocess_image(self, image_bytes):
         """Preprocess uploaded image for model input."""
