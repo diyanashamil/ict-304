@@ -101,45 +101,12 @@ class FloodDetector:
     
     def load_model(self):
         """Load the trained PyTorch model."""
-        # Try different base_channels values
-        for base_ch in [256, 128, 64, 32]:
-            try:
-                print(f"Trying base_channels={base_ch}...")
-                self.model = UNet(in_channels=9, out_channels=1, base_channels=base_ch)
-                
-                # Load weights
-                checkpoint = torch.load(self.model_path, map_location=self.device, weights_only=True)
-                
-                # Handle different checkpoint formats
-                if isinstance(checkpoint, dict):
-                    if 'model_state_dict' in checkpoint:
-                        state_dict = checkpoint['model_state_dict']
-                    elif 'state_dict' in checkpoint:
-                        state_dict = checkpoint['state_dict']
-                    else:
-                        state_dict = checkpoint
-                else:
-                    state_dict = checkpoint
-                
-                # Load with strict=False
-                missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
-                
-                self.model.to(self.device)
-                self.model.eval()
-                print(f"✓ Leslie's CNN model loaded successfully with base_channels={base_ch}!")
-                if missing_keys:
-                    print(f"  Missing keys: {len(missing_keys)}")
-                if unexpected_keys:
-                    print(f"  Unexpected keys: {len(unexpected_keys)}")
-                return  # Success!
-                
-            except Exception as e:
-                print(f"  Failed with base_channels={base_ch}: {e}")
-                continue
-        
-        # All attempts failed
-        print("✗ Failed to load CNN model with any base_channels value")
-        self.model = None
+        # For now, use mock mode since we can't match Leslie's architecture
+        # TODO: Get exact architecture from Leslie
+        print("⚠️  Using MOCK mode - real model architecture mismatch")
+        print("    Will generate random predictions for demo purposes")
+        print("    Contact Leslie for exact model architecture to enable real predictions")
+        self.model = "MOCK"  # Flag for mock mode
     
     def preprocess_image(self, image_bytes):
         """Preprocess uploaded image for model input."""
@@ -184,6 +151,54 @@ class FloodDetector:
         if self.model is None:
             return None, "Model not loaded"
         
+        # MOCK MODE - generate demo predictions
+        if self.model == "MOCK":
+            try:
+                # Just for UI demo - random but realistic predictions
+                import random
+                flood_percentage = random.uniform(15, 45)
+                avg_confidence = random.uniform(60, 85)
+                max_confidence = random.uniform(85, 95)
+                
+                # Determine risk level
+                if flood_percentage < 10:
+                    risk_level = "Green"
+                elif flood_percentage < 30:
+                    risk_level = "Yellow"
+                elif flood_percentage < 60:
+                    risk_level = "Orange"
+                else:
+                    risk_level = "Red"
+                
+                risk_conf = avg_confidence / 100
+                
+                # Create dummy probability map
+                dummy_map = [[random.random() * 0.6 for _ in range(32)] for _ in range(32)]
+                dummy_binary = [[1 if v > 0.45 else 0 for v in row] for row in dummy_map]
+                
+                result = {
+                    'flood_percentage': flood_percentage,
+                    'avg_confidence': avg_confidence,
+                    'max_confidence': max_confidence,
+                    'risk_level': risk_level,
+                    'risk_confidence': risk_conf,
+                    'probability_map': dummy_map,
+                    'binary_mask': dummy_binary,
+                    'explanation': [
+                        "⚠️  DEMO MODE - Using placeholder predictions",
+                        f"Simulated flood detection: {flood_percentage:.1f}% of area",
+                        f"Simulated confidence: {avg_confidence:.1f}%",
+                        "Real predictions require Leslie's model architecture",
+                        "Contact Leslie for exact UNet parameters"
+                    ]
+                }
+                
+                return result, None
+                
+            except Exception as e:
+                return None, str(e)
+        
+        # REAL MODEL MODE (when we get the right architecture)
         try:
             # Preprocess
             img_tensor = self.preprocess_image(image_bytes)
