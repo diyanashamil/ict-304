@@ -27,8 +27,8 @@ import numpy as np
 import threading
 import pandas as pd
 import tensorflow as tf
+import joblib
 from flask import Flask, jsonify, render_template, request
-from sklearn.preprocessing import MinMaxScaler
 from subsystem_b import FloodDetector
 from werkzeug.utils import secure_filename
 import io
@@ -74,14 +74,16 @@ HORIZON_STEPS       = 18
 DATA_FREQ_MIN       = 10
 RECENT_WINDOW_STEPS = HORIZON_STEPS
 
+FEATURE_SCALER_PATH = MODELS_DIR / "feature_scaler.pkl"
+RAIN_SCALER_PATH = MODELS_DIR / "rain_scaler.pkl"
+FEATURE_COLS_PATH = MODELS_DIR / "feature_columns.json"
+META_PATH = MODELS_DIR / "model_meta.json"
+
 FEATURE_COLS: List[str] = [
     "p", "T", "Tpot", "Tdew", "rh", "VPmax", "VPact", "VPdef",
     "sh", "H2OC", "rho", "wv", "max. wv", "wd", "rain", "raining",
     "SWDR", "PAR", "Tlog"
 ]
-
-scaler = MinMaxScaler()
-scaler.fit([[0] * N_FEATURES, [100] * N_FEATURES])
 
 # -----------------------------
 # Load model (local only - no Google Drive)
@@ -92,8 +94,29 @@ if not MODEL_PATH.exists():
         f"Please place rainfall_model.keras inside the models/ folder."
     )
 
+for p in [FEATURE_SCALER_PATH, RAIN_SCALER_PATH, FEATURE_COLS_PATH, META_PATH]:
+    if not p.exists():
+        raise FileNotFoundError(
+            f"Missing required file: {p}. Please place the trained scaler/meta files inside the models/ folder."
+        )
+
 print(f"Loading model from {MODEL_PATH}...")
 model = tf.keras.models.load_model(str(MODEL_PATH))
+feature_scaler = joblib.load(FEATURE_SCALER_PATH)
+rain_scaler = joblib.load(RAIN_SCALER_PATH)
+
+with open(FEATURE_COLS_PATH, "r", encoding="utf-8") as f:
+    FEATURE_COLS = json.load(f)
+
+with open(META_PATH, "r", encoding="utf-8") as f:
+    META = json.load(f)
+
+SEQUENCE_LENGTH = int(META["sequence_length"])
+HORIZON_STEPS = int(META["horizon_steps"])
+DATA_FREQ_MIN = int(META.get("data_frequency_minutes", 10))
+RECENT_WINDOW_STEPS = HORIZON_STEPS
+N_FEATURES = len(FEATURE_COLS)
+
 print("Model loaded successfully!")
 
 # Warm up model
@@ -237,6 +260,57 @@ def load_recent_rain_series() -> np.ndarray | None:
 # Feature window builder
 # -----------------------------
 
+def prep_features(df: pd.DataFrame | None, df_cols: List[str]) -> pd.DataFrame | None:
+    if df is None:
+        return None
+    available_cols = [c for c in df_cols if c in df.columns]
+    if len(available_cols) == 0:
+        return None
+    feat_df = df[available_cols].apply(pd.to_numeric, errors="coerce").dropna()
+
+    # Ensure all model cols exist
+    for col in df_cols:
+        if col not in feat_df.columns:
+            feat_df[col] = 0.0
+
+    return feat_df[df_cols]
+
+
+def load_recent_history(df_cols: List[str]) -> Tuple[pd.DataFrame | None, np.ndarray | None]:
+    """
+    LSTM feature history window (PAST ONLY):
+      - Prefer INPUT_CSV_PATH
+      - If not enough, backfill from TRAIN_CSV_PATH
+    Returns:
+      feat_hist: DataFrame length (SEQUENCE_LENGTH - 1)
+      recent_rain: np array length RECENT_WINDOW_STEPS
+    """
+    history_needed = SEQUENCE_LENGTH - 1
+
+    train_df = pd.read_csv(TRAIN_CSV_PATH) if TRAIN_CSV_PATH.exists() else None
+    input_df = pd.read_csv(INPUT_CSV_PATH) if INPUT_CSV_PATH.exists() else None
+
+    train_feat = prep_features(train_df, df_cols)
+    input_feat = prep_features(input_df, df_cols)
+
+    input_rows = 0 if input_feat is None else len(input_feat)
+    use_input = min(history_needed, input_rows)
+
+    parts = []
+    if use_input > 0:
+        parts.append(input_feat.tail(use_input))
+
+    remaining = history_needed - use_input
+    if remaining > 0:
+        if train_feat is None or len(train_feat) < remaining:
+            return None, None
+        parts.insert(0, train_feat.tail(remaining))
+
+    feat_hist = pd.concat(parts, ignore_index=True)
+    recent_rain = load_recent_rain_series()
+    return feat_hist, recent_rain
+
+
 def build_feature_row_from_json(data: dict) -> dict:
     """Build a single feature row matching training feature columns (19 features)."""
     row = {}
@@ -247,18 +321,30 @@ def build_feature_row_from_json(data: dict) -> dict:
 
 
 def run_model_forecast(window_df: pd.DataFrame) -> np.ndarray:
-    row = window_df.iloc[-1]
-    feature_values = [coerce_float(row[c] if c in row.index else 0.0) for c in FEATURE_COLS]
-    scaled_input = scaler.transform([feature_values])[0]
-    input_sequence = np.array([scaled_input] * SEQUENCE_LENGTH, dtype=np.float32)
-    input_sequence = input_sequence.reshape((1, SEQUENCE_LENGTH, N_FEATURES))
-    
+    """
+    Run the trained LSTM forecast on a full feature window and convert output back to rainfall mm.
+    """
+    for col in FEATURE_COLS:
+        if col not in window_df.columns:
+            window_df[col] = 0.0
+
+    feature_values = window_df[FEATURE_COLS].apply(pd.to_numeric, errors="coerce").fillna(0.0).to_numpy(dtype=np.float32)
+    if len(feature_values) != SEQUENCE_LENGTH:
+        raise ValueError(f"Expected {SEQUENCE_LENGTH} rows for prediction, got {len(feature_values)}")
+
+    scaled_input = feature_scaler.transform(feature_values)
+    input_sequence = scaled_input.reshape((1, SEQUENCE_LENGTH, N_FEATURES)).astype(np.float32)
+
     with model_lock:
-        prediction = model(input_sequence, training=False)
-        base_val = float(prediction.numpy()[0][0])
-    
-    series = np.maximum(0, np.array([base_val] * HORIZON_STEPS, dtype=float))
-    return series
+        prediction = model(input_sequence, training=False).numpy().reshape(-1, 1)
+
+    pred_series = rain_scaler.inverse_transform(prediction).reshape(-1)
+    pred_series = np.maximum(0.0, pred_series)
+
+    if len(pred_series) != HORIZON_STEPS:
+        raise ValueError(f"Expected {HORIZON_STEPS} forecast steps, got {len(pred_series)}")
+
+    return pred_series
 
 
 
@@ -527,8 +613,25 @@ def predict():
 
         current_df = pd.DataFrame([current_row])
 
+        # Build past 119 feature rows so the LSTM receives the same type of input
+        feat_hist, _ = load_recent_history(FEATURE_COLS)
+        if feat_hist is None:
+            return jsonify({
+                "error": (
+                    "Not enough past history to form the LSTM window. "
+                    f"Need at least {SEQUENCE_LENGTH - 1} observed rows (input.csv) OR enough rows in weather_data.csv for backfill."
+                )
+            }), 400
+
+        window_df = pd.concat([feat_hist, current_df], ignore_index=True)
+        for col in FEATURE_COLS:
+            if col not in window_df.columns:
+                window_df[col] = 0.0
+        window_df = window_df[FEATURE_COLS]
+
         rolled_in_mm = None
         mode_used = "model"
+        prev = None
 
         if simulation_mode:
             pred_series, err = get_simulated_forecast_series()
@@ -543,12 +646,12 @@ def predict():
                 rolled_in_mm = prev_first
                 _append_observed_rain(rolled_in_mm)
 
-            pred_series = run_model_forecast(current_df)
+            pred_series = run_model_forecast(window_df)
 
             if auto_roll:
                 _write_last_forecast(pred_series)
 
-        # step_delta = current PEAK - previous PEAK (what you wanted)
+        # step_delta = current PEAK - previous PEAK
         prev_peak = float(max(prev)) if prev else float(pred_series[0])
         curr_peak = float(np.max(pred_series))
         step_delta = curr_peak - prev_peak
