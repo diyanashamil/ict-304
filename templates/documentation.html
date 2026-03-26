@@ -380,6 +380,152 @@
         .toc a:hover {
             text-decoration: underline;
         }
+
+        /* Architecture Visual Diagram Styles */
+        .arch-visual {
+            margin: 2rem 0;
+        }
+
+        .arch-layer {
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            border-radius: 8px;
+        }
+
+        .arch-layer-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .arch-layer-title::before {
+            content: '';
+            width: 4px;
+            height: 24px;
+            background: currentColor;
+            border-radius: 2px;
+        }
+
+        .arch-frontend {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .arch-backend {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+
+        .arch-ai-layer {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+
+        .arch-subsystem {
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 1.5rem;
+        }
+
+        .arch-subsystem-a {
+            border-left: 4px solid #48bb78;
+        }
+
+        .arch-subsystem-b {
+            border-left: 4px solid #4299e1;
+        }
+
+        .arch-subsystem-title {
+            font-weight: 600;
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+            color: #2d3748;
+        }
+
+        .arch-component {
+            background: #f7fafc;
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 0.75rem;
+            border-left: 3px solid #cbd5e0;
+        }
+
+        .arch-component-title {
+            font-weight: 600;
+            color: #4a5568;
+            margin-bottom: 0.5rem;
+            font-size: 0.95rem;
+        }
+
+        .arch-component-details {
+            font-size: 0.85rem;
+            color: #718096;
+            line-height: 1.6;
+        }
+
+        .arch-component-details li {
+            margin-left: 1.5rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .arch-arrow {
+            text-align: center;
+            font-size: 2rem;
+            color: #cbd5e0;
+            margin: 0.5rem 0;
+        }
+
+        .arch-flow-arrows {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin: 1rem 0;
+            color: #a0aec0;
+            font-weight: 600;
+        }
+
+        .arch-routes {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 0.75rem;
+            margin-top: 0.75rem;
+        }
+
+        .arch-route-item {
+            background: rgba(255,255,255,0.2);
+            padding: 0.75rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+
+        .arch-route-method {
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+
+        .arch-tech-badge {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            display: inline-block;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        @media (max-width: 768px) {
+            .arch-ai-layer {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -470,73 +616,164 @@
             </div>
             <div class="section-content">
                 <div class="content-inner">
-                    <div class="architecture-diagram">
-┌─────────────────────────────────────────────────────────────────────┐
-│                    USER INTERFACE (Web Browser)                     │
-│              HTML5 + CSS3 + JavaScript + Chart.js                   │
-│                                                                     │
-│  ┌──────────────────────┐       ┌─────────────────────────────┐   │
-│  │   Landing Page       │       │  Subsystem Pages            │   │
-│  │   - Hero Section     │       │  - Subsystem A Interface    │   │
-│  │   - Subsystem Cards  │       │  - Subsystem B Interface    │   │
-│  └──────────────────────┘       └─────────────────────────────┘   │
-└────────────────────────────────┬────────────────────────────────────┘
-                                 │ HTTP REST API (JSON)
-                                 ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                 FLASK WEB SERVER (Python 3.12)                      │
-│                                                                     │
-│  ┌───────────────────────────────────────────────────────────────┐ │
-│  │                      Route Handlers                           │ │
-│  │  GET  /              → Landing page                          │ │
-│  │  GET  /subsystem_a   → LSTM interface                        │ │
-│  │  GET  /subsystem_b   → CNN interface                         │ │
-│  │  POST /predict       → Rainfall prediction                   │ │
-│  │  POST /predict_image → Satellite flood detection             │ │
-│  └───────────────────────────────────────────────────────────────┘ │
-│                                                                     │
-│  ┌───────────────────────────────────────────────────────────────┐ │
-│  │                    Data Processing Layer                      │ │
-│  │  - Input validation and sanitization                         │ │
-│  │  - Feature normalization (MinMaxScaler)                      │ │
-│  │  - Sequence generation for LSTM                              │ │
-│  │  - Image preprocessing for CNN                               │ │
-│  │  - Output formatting and risk assessment                     │ │
-│  └───────────────────────────────────────────────────────────────┘ │
-└──────────────────┬────────────────────────────┬─────────────────────┘
-                   │                            │
-                   ▼                            ▼
-┌──────────────────────────────────┐  ┌────────────────────────────────┐
-│        SUBSYSTEM A               │  │        SUBSYSTEM B             │
-│   LSTM + Fuzzy Logic Engine      │  │     CNN U-Net Model            │
-│                                  │  │                                │
-│ ┌──────────────────────────────┐ │  │ ┌────────────────────────────┐ │
-│ │ TensorFlow/Keras LSTM        │ │  │ │ PyTorch U-Net              │ │
-│ │ - Input: 19 features         │ │  │ │ - Input: 9 channels        │ │
-│ │ - Sequence: 120 timesteps    │ │  │ │ - Resolution: 512×512      │ │
-│ │ - Output: 18 predictions     │ │  │ │ - Output: Flood mask       │ │
-│ │ - Model: rainfall_model.keras│ │  │ │ - Model: best_flood...pt   │ │
-│ └──────────────────────────────┘ │  │ └────────────────────────────┘ │
-│              │                   │  │              │                 │
-│              ▼                   │  │              ▼                 │
-│ ┌──────────────────────────────┐ │  │ ┌────────────────────────────┐ │
-│ │ Mamdani Fuzzy Logic System   │ │  │ │ Post-Processing            │ │
-│ │                              │ │  │ │                            │ │
-│ │ Inputs:                      │ │  │ │ Metrics:                   │ │
-│ │ - Total rainfall (0-60mm)    │ │  │ │ - Flood percentage        │ │
-│ │ - Peak intensity (0-20mm)    │ │  │ │ - Average confidence      │ │
-│ │ - Trend delta (-5 to +5mm)   │ │  │ │ - Max confidence          │ │
-│ │                              │ │  │ │ - Binary mask             │ │
-│ │ Membership Functions:        │ │  │ │                            │ │
-│ │ - Trapezoidal                │ │  │ │ Risk Levels:               │ │
-│ │ - Triangular                 │ │  │ │ - Green: < 10%            │ │
-│ │                              │ │  │ │ - Yellow: 10-30%          │ │
-│ │ Rules: 9 fuzzy rules         │ │  │ │ - Orange: 30-60%          │ │
-│ │ Output: Risk (0-1)           │ │  │ │ - Red: > 60%              │ │
-│ │                              │ │  │ │                            │ │
-│ │ Defuzzification: Centroid    │ │  │ │ Threshold: 0.45           │ │
-│ └──────────────────────────────┘ │  │ └────────────────────────────┘ │
-└──────────────────────────────────┘  └────────────────────────────────┘
+                    <div class="arch-visual">
+                        <!-- Frontend Layer -->
+                        <div class="arch-layer arch-frontend">
+                            <div class="arch-layer-title">🖥️ Frontend Layer (Client-Side)</div>
+                            <div class="arch-component">
+                                <div class="arch-component-title">User Interface</div>
+                                <div class="arch-component-details">
+                                    <ul>
+                                        <li>Landing Page with subsystem cards</li>
+                                        <li>Subsystem A: Weather input form + forecast charts</li>
+                                        <li>Subsystem B: Image upload + flood visualization</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <div>
+                                <span class="arch-tech-badge">HTML5</span>
+                                <span class="arch-tech-badge">CSS3</span>
+                                <span class="arch-tech-badge">JavaScript ES6</span>
+                                <span class="arch-tech-badge">Chart.js</span>
+                                <span class="arch-tech-badge">Fetch API</span>
+                            </div>
+                        </div>
+
+                        <div class="arch-arrow">⬇️</div>
+                        <div class="arch-flow-arrows">
+                            <span>HTTP POST/GET</span>
+                            <span>→</span>
+                            <span>JSON Data</span>
+                        </div>
+
+                        <!-- Backend Layer -->
+                        <div class="arch-layer arch-backend">
+                            <div class="arch-layer-title">⚙️ Backend Layer (Flask Server)</div>
+                            
+                            <div class="arch-component">
+                                <div class="arch-component-title">Route Handlers</div>
+                                <div class="arch-routes">
+                                    <div class="arch-route-item">
+                                        <span class="arch-route-method">GET</span> / → Landing page
+                                    </div>
+                                    <div class="arch-route-item">
+                                        <span class="arch-route-method">GET</span> /subsystem_a → LSTM UI
+                                    </div>
+                                    <div class="arch-route-item">
+                                        <span class="arch-route-method">GET</span> /subsystem_b → CNN UI
+                                    </div>
+                                    <div class="arch-route-item">
+                                        <span class="arch-route-method">POST</span> /predict → Rainfall
+                                    </div>
+                                    <div class="arch-route-item">
+                                        <span class="arch-route-method">POST</span> /predict_image → Flood
+                                    </div>
+                                    <div class="arch-route-item">
+                                        <span class="arch-route-method">GET</span> /docs → Documentation
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="arch-component">
+                                <div class="arch-component-title">Data Processing Pipeline</div>
+                                <div class="arch-component-details">
+                                    <ul>
+                                        <li><strong>Validation:</strong> Check required fields, data types, ranges</li>
+                                        <li><strong>Normalization:</strong> MinMaxScaler (0-1 range) for LSTM</li>
+                                        <li><strong>Sequence Generation:</strong> Create 120-timestep arrays</li>
+                                        <li><strong>Image Processing:</strong> Resize, RGB→9-channel conversion</li>
+                                        <li><strong>Output Formatting:</strong> JSON responses with predictions</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div>
+                                <span class="arch-tech-badge">Python 3.12</span>
+                                <span class="arch-tech-badge">Flask 3.1.0</span>
+                                <span class="arch-tech-badge">NumPy 1.26.4</span>
+                                <span class="arch-tech-badge">Pandas 2.2.2</span>
+                                <span class="arch-tech-badge">scikit-learn 1.3.0</span>
+                                <span class="arch-tech-badge">Pillow 10.4.0</span>
+                                <span class="arch-tech-badge">Gunicorn 21.2.0</span>
+                            </div>
+                        </div>
+
+                        <div class="arch-arrow">⬇️</div>
+                        <div class="arch-flow-arrows">
+                            <span>Model Inference</span>
+                        </div>
+
+                        <!-- AI Layer -->
+                        <div class="arch-ai-layer">
+                            <!-- Subsystem A -->
+                            <div class="arch-subsystem arch-subsystem-a">
+                                <div class="arch-subsystem-title">📊 Subsystem A: LSTM + Fuzzy Logic</div>
+                                
+                                <div class="arch-component">
+                                    <div class="arch-component-title">🧠 LSTM Neural Network</div>
+                                    <div class="arch-component-details">
+                                        <ul>
+                                            <li><strong>Framework:</strong> TensorFlow/Keras 2.16.2</li>
+                                            <li><strong>Input:</strong> 19 features × 120 timesteps</li>
+                                            <li><strong>Output:</strong> 18 predictions (3-hour forecast)</li>
+                                            <li><strong>Model:</strong> rainfall_model.keras</li>
+                                            <li><strong>Frequency:</strong> 10-minute intervals</li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <div class="arch-component">
+                                    <div class="arch-component-title">🎯 Mamdani Fuzzy Logic</div>
+                                    <div class="arch-component-details">
+                                        <ul>
+                                            <li><strong>Inputs:</strong> Total (0-60mm), Peak (0-20mm), Delta (-5 to +5mm)</li>
+                                            <li><strong>Functions:</strong> Trapezoidal & Triangular</li>
+                                            <li><strong>Rules:</strong> 9 expert fuzzy rules</li>
+                                            <li><strong>Method:</strong> Centroid defuzzification</li>
+                                            <li><strong>Output:</strong> Risk (0-1) → Green/Yellow/Orange/Red</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Subsystem B -->
+                            <div class="arch-subsystem arch-subsystem-b">
+                                <div class="arch-subsystem-title">🛰️ Subsystem B: CNN U-Net</div>
+                                
+                                <div class="arch-component">
+                                    <div class="arch-component-title">🧠 U-Net CNN</div>
+                                    <div class="arch-component-details">
+                                        <ul>
+                                            <li><strong>Framework:</strong> PyTorch 2.5.1</li>
+                                            <li><strong>Architecture:</strong> Encoder-Decoder + skip connections</li>
+                                            <li><strong>Input:</strong> 9 channels × 512×512 pixels</li>
+                                            <li><strong>Output:</strong> Flood probability map (512×512)</li>
+                                            <li><strong>Model:</strong> best_flood_early_warning_unet.pt (91MB)</li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <div class="arch-component">
+                                    <div class="arch-component-title">🔄 Processing</div>
+                                    <div class="arch-component-details">
+                                        <ul>
+                                            <li><strong>Preprocessing:</strong> RGB → 9 pseudo-spectral channels</li>
+                                            <li><strong>Resize:</strong> 512×512 (LANCZOS), normalize [0,1]</li>
+                                            <li><strong>Threshold:</strong> 0.45 (flood vs no-flood)</li>
+                                            <li><strong>Metrics:</strong> Flood %, confidence, binary mask</li>
+                                            <li><strong>Alerts:</strong> Green (<10%), Yellow (10-30%), Orange (30-60%), Red (>60%)</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="arch-arrow">⬆️</div>
+                        <div class="arch-flow-arrows">
+                            <span>JSON Response</span>
+                            <span>→</span>
+                            <span>User Visualization</span>
+                        </div>
                     </div>
 
                     <div class="subsection">
@@ -1520,7 +1757,31 @@ gunicorn rainfall_prediction:app \
             </div>
             <div class="section-content">
                 <div class="content-inner">
-                   
+                    <div class="subsection">
+                        <h3>Project Team</h3>
+                        <div class="feature-grid">
+                            <div class="feature-card">
+                                <h4>Diyana Shamil</h4>
+                                <p><strong>Role:</strong> Subsystem A Development<br>
+                                LSTM model integration, fuzzy logic implementation, Flask backend architecture, deployment</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>Leslie</h4>
+                                <p><strong>Role:</strong> Subsystem B Development<br>
+                                U-Net CNN training, satellite image processing, PyTorch model development</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>Alex Zhang</h4>
+                                <p><strong>Role:</strong> Frontend & UX<br>
+                                UI/UX design, frontend integration, user testing, quality assurance</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>ZhiHeng</h4>
+                                <p><strong>Role:</strong> Data & Research<br>
+                                Dataset collection, model evaluation, documentation, testing</p>
+                            </div>
+                        </div>
+                    </div>
 
                     <div class="subsection">
                         <h3>Academic Information</h3>
