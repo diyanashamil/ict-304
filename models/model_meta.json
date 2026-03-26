@@ -1,0 +1,10 @@
+{
+  "sequence_length": 120,
+  "horizon_steps": 18,
+  "horizon_minutes": 180,
+  "data_frequency_minutes": 10,
+  "epochs": 50,
+  "batch_size": 32,
+  "train_ratio": 0.7,
+  "val_ratio": 0.1
+}
