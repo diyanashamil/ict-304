@@ -161,13 +161,17 @@
             padding: 1.5rem;
             border-radius: 8px;
             overflow-x: auto;
+            overflow-y: auto;
+            max-height: 500px;
             margin: 1rem 0;
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-            font-size: 0.9rem;
-            line-height: 1.8;
+            font-size: 0.85rem;
+            line-height: 1.6;
             position: relative;
             border: 1px solid #334155;
             box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            white-space: pre-wrap;
+            word-wrap: break-word;
         }
 
         .code-block::before {
@@ -1143,93 +1147,25 @@ else:
                             </tr>
                         </table>
 
-                        <h4>Network Architecture Diagram</h4>
-                        <div class="architecture-diagram">
-INPUT: (Batch=1, Channels=9, Height=512, Width=512)
-    │
-    ▼
-┌─────────────────────────────────────────────────────┐
-│ ENCODER PATH (Contracting)                          │
-├─────────────────────────────────────────────────────┤
-│ enc1: DoubleConv(9 → 32)              [512×512]    │
-│   ├─ Conv2d(9→32, 3×3, pad=1, bias=False)          │
-│   ├─ BatchNorm2d(32) + ReLU                        │
-│   ├─ Conv2d(32→32, 3×3, pad=1, bias=False)         │
-│   └─ BatchNorm2d(32) + ReLU                        │
-│       │                                             │
-│       └─> [Skip Connection 1] ─────────────────┐   │
-│       │                                         │   │
-│       ▼                                         │   │
-│ enc2: Down(32 → 64)                [256×256]   │   │
-│   ├─ MaxPool2d(2×2, stride=2)                  │   │
-│   └─ DoubleConv(32 → 64)                       │   │
-│       │                                         │   │
-│       └─> [Skip Connection 2] ───────────┐     │   │
-│       │                                   │     │   │
-│       ▼                                   │     │   │
-│ enc3: Down(64 → 128)               [128×128]   │   │   │
-│   ├─ MaxPool2d(2×2)                            │   │   │
-│   └─ DoubleConv(64 → 128)                      │   │   │
-│       │                                         │   │   │
-│       └─> [Skip Connection 3] ─────┐           │   │   │
-│       │                             │           │   │   │
-│       ▼                             │           │   │   │
-│ enc4: Down(128 → 256)          [64×64]         │   │   │   │
-│   ├─ MaxPool2d(2×2)                            │   │   │   │
-│   └─ DoubleConv(128 → 256)                     │   │   │   │
-│       │                                         │   │   │   │
-│       └─> [Skip Connection 4] ┐                │   │   │   │
-│       │                        │                │   │   │   │
-│       ▼                        │                │   │   │   │
-└─────────────────────────────────────────────────────┘   │   │   │
-                                 │                    │   │   │   │
-                                 ▼                    │   │   │   │
-┌─────────────────────────────────────────────────────┐   │   │   │
-│ BOTTLENECK                                          │   │   │   │
-├─────────────────────────────────────────────────────┤   │   │   │
-│ bottleneck: Down(256 → 512)        [32×32]         │   │   │   │
-│   ├─ MaxPool2d(2×2)                                │   │   │   │
-│   └─ DoubleConv(256 → 512)                         │   │   │   │
-└─────────────────────────────────────────────────────┘   │   │   │
-                                 │                        │   │   │
-                                 ▼                        │   │   │
-┌─────────────────────────────────────────────────────┐   │   │   │
-│ DECODER PATH (Expanding)                            │   │   │   │
-├─────────────────────────────────────────────────────┤   │   │   │
-│ dec1: Up(512 → 256) + Skip4        [64×64]         │   │   │   │
-│   ├─ ConvTranspose2d(512→256, 2×2, stride=2)       │   │   │   │
-│   ├─ Concatenate([256 + 256] = 512 channels) ◄─────┼───┘   │   │
-│   └─ DoubleConv(512 → 256)                         │       │   │
-│       │                                             │       │   │
-│       ▼                                             │       │   │
-│ dec2: Up(256 → 128) + Skip3        [128×128]       │       │   │
-│   ├─ ConvTranspose2d(256→128, 2×2, stride=2)       │       │   │
-│   ├─ Concatenate([128 + 128] = 256 channels) ◄─────┼───────┘   │
-│   └─ DoubleConv(256 → 128)                         │           │
-│       │                                             │           │
-│       ▼                                             │           │
-│ dec3: Up(128 → 64) + Skip2         [256×256]       │           │
-│   ├─ ConvTranspose2d(128→64, 2×2, stride=2)        │           │
-│   ├─ Concatenate([64 + 64] = 128 channels) ◄───────┼───────────┘
-│   └─ DoubleConv(128 → 64)                          │
-│       │                                             │
-│       ▼                                             │
-│ dec4: Up(64 → 32) + Skip1          [512×512]       │
-│   ├─ ConvTranspose2d(64→32, 2×2, stride=2)         │
-│   ├─ Concatenate([32 + 32] = 64 channels) ◄────────┼───────────
-│   └─ DoubleConv(64 → 32)                           │
-└─────────────────────────────────────────────────────┘
-                                 │
-                                 ▼
-┌─────────────────────────────────────────────────────┐
-│ OUTPUT HEAD                                         │
-├─────────────────────────────────────────────────────┤
-│ out_conv: Conv2d(32 → 1, kernel=1)                 │
-│ sigmoid: Sigmoid activation                         │
-│                                                     │
-│ OUTPUT: (1, 1, 512, 512)                           │
-│   - Flood probability map [0.0 to 1.0]             │
-└─────────────────────────────────────────────────────┘
+                        <h4>U-Net Architecture</h4>
+                        
+                        <div class="info-box">
+                            <strong>📐 U-Net Structure:</strong><br><br>
+                            
+                            <strong>Encoder (Contracting Path):</strong><br>
+                            • enc1: 9 → 32 channels (512×512)<br>
+                            • enc2: 32 → 64 channels (256×256)<br>
+                            • enc3: 64 → 128 channels (128×128)<br>
+                            • enc4: 128 → 256 channels (64×64)<br>
+                            • bottleneck: 256 → 512 channels (32×32)<br><br>
+                            
+                            <strong>Decoder (Expanding Path with Skip Connections):</strong><br>
+                            • dec1: 512 → 256 channels + skip from enc4 (64×64)<br>
+                            • dec2: 256 → 128 channels + skip from enc3 (128×128)<br>
+                            • dec3: 128 → 64 channels + skip from enc2 (256×256)<br>
+                            • dec4: 64 → 32 channels + skip from enc1 (512×512)<br><br>
+                            
+                            <strong>Output:</strong> Conv2d(32 → 1) + Sigmoid → Flood probability map (512×512)
                         </div>
 
                         <h4>Building Blocks</h4>
