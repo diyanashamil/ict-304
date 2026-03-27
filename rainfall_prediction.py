@@ -405,73 +405,187 @@ def _trimf(x: float, a: float, b: float, c: float) -> float:
     return (c - x) / (c - b)
 
 
-def fuzzy_risk_mamdani(forecast_total: float, forecast_peak: float, step_delta: float) -> Tuple[float, str, List[str]]:
-    """Simple Mamdani fuzzy system with centroid defuzzification."""
+def _trimf(x, a, b, c):
+    x = np.asarray(x, dtype=float)
+    y = np.zeros_like(x)
+    idx = (a < x) & (x < b)
+    y[idx] = (x[idx] - a) / (b - a + 1e-12)
+    idx = (b <= x) & (x < c)
+    y[idx] = (c - x[idx]) / (c - b + 1e-12)
+    y[x == b] = 1.0
+    return np.clip(y, 0.0, 1.0)
 
-    # ---- fuzzify inputs ----
-    # total mm over 3h (0..30+ typical)
-    total_low = _trapmf(forecast_total, 0, 0, 3, 8)
-    total_med = _trimf(forecast_total, 5, 12, 20)
-    total_high = _trapmf(forecast_total, 15, 22, 35, 60)
 
-    # peak mm per 10-min (0..10+ typical)
-    peak_low = _trapmf(forecast_peak, 0, 0, 0.8, 2.0)
-    peak_med = _trimf(forecast_peak, 1.5, 3.0, 5.0)
-    peak_high = _trapmf(forecast_peak, 4.0, 6.0, 10.0, 20.0)
+def _trapmf(x, a, b, c, d):
+    x = np.asarray(x, dtype=float)
+    y = np.zeros_like(x)
+    idx = (a < x) & (x < b)
+    y[idx] = (x[idx] - a) / (b - a + 1e-12)
+    idx = (b <= x) & (x <= c)
+    y[idx] = 1.0
+    idx = (c < x) & (x < d)
+    y[idx] = (d - x[idx]) / (d - c + 1e-12)
+    return np.clip(y, 0.0, 1.0)
 
-    # step delta (current_peak - prev_peak), allow negative
-    delta_down = _trapmf(step_delta, -5.0, -5.0, -0.25, 0.0)
-    delta_flat = _trimf(step_delta, -0.15, 0.0, 0.15)
-    delta_up = _trapmf(step_delta, 0.0, 0.25, 5.0, 5.0)
 
-    # ---- rule base (Mamdani: AND=min, OR=max) ----
-    # Output universe risk in [0, 1]
-    y = np.linspace(0.0, 1.0, 401)
+def _norm01(x, cap):
+    if cap <= 0:
+        return 0.0
+    return float(max(0.0, min(float(x) / float(cap), 1.0)))
 
-    def out_low(yy):
-        return np.array([_trapmf(v, 0.0, 0.0, 0.15, 0.35) for v in yy])
 
-    def out_med(yy):
-        return np.array([_trimf(v, 0.25, 0.50, 0.75) for v in yy])
+# =========================================================
+# Fuzzy flood risk engine
+# Uses:
+#   1) forecast total rainfall over next 3 hours
+#   2) peak rainfall intensity in forecast
+#   3) recent observed rainfall accumulation
+#   4) step delta = current next-step forecast - previous next-step forecast
+# Returns:
+#   risk score (0~1), alert level, explanation lines, and summary details
+# =========================================================
+def fuzzy_flood_risk(pred_series: np.ndarray, recent_series: np.ndarray | None, step_delta: float):
+    # Safety clamp: prediction values should not go below 0
+    pred_series = np.maximum(np.array(pred_series, dtype=float), 0.0)
 
-    def out_high(yy):
-        return np.array([_trapmf(v, 0.65, 0.80, 1.0, 1.0) for v in yy])
+    # Core values used by fuzzy rules
+    forecast_total = float(np.sum(pred_series))                           # next 180 min accumulation
+    peak = float(np.max(pred_series)) if len(pred_series) else 0.0       # strongest 10-min step
+    recent_total = float(np.sum(recent_series)) if recent_series is not None else 0.0  # past 180 min accumulation
 
-    # Rule strengths
-    r1 = min(total_high, peak_high)                      # IF total high AND peak high -> high
-    r2 = min(total_high, max(peak_med, delta_up))        # IF total high AND (peak med OR delta up) -> high
-    r3 = min(total_med, peak_high)                       # IF total med AND peak high -> high
+    # -----------------------------
+    # Helper membership functions
+    # -----------------------------
+    def tri(x, a, b, c):
+        # Triangular membership function
+        x = float(x)
+        if x <= a or x >= c:
+            return 0.0
+        if x == b:
+            return 1.0
+        if x < b:
+            return (x - a) / (b - a)
+        return (c - x) / (c - b)
 
-    r4 = min(total_med, peak_med)                        # IF total med AND peak med -> med
-    r5 = min(total_high, peak_low)                       # IF total high AND peak low -> med
+    def trap(x, a, b, c, d):
+        # Trapezoidal membership function
+        x = float(x)
+        if x <= a or x >= d:
+            return 0.0
+        if b <= x <= c:
+            return 1.0
+        if x < b:
+            return (x - a) / (b - a)
+        return (d - x) / (d - c)
 
-    r6 = min(total_low, peak_low)                        # IF total low AND peak low -> low
-    r7 = min(total_low, max(peak_med, peak_high))        # IF total low AND (peak med/high) -> med
-    r8 = min(total_med, peak_low)                        # IF total med AND peak low -> low-ish
+    def centroid(xs, mus):
+        # Defuzzification using centroid method
+        num = 0.0
+        den = 0.0
+        for x, mu in zip(xs, mus):
+            mu = float(mu)
+            num += x * mu
+            den += mu
+        return 0.0 if den <= 1e-9 else num / den
 
-    # Trend influence: if delta down and everything low-ish => reduce
-    r9 = min(delta_down, max(total_low, peak_low))       # IF delta down AND (total low OR peak low) -> low
+    # -----------------------------
+    # Input memberships
+    # -----------------------------
+    # Forecast total rainfall memberships
+    total_low  = trap(forecast_total, 0.0, 0.0, 2.0, 6.0)
+    total_med  = tri (forecast_total, 4.0, 10.0, 16.0)
+    total_high = trap(forecast_total, 12.0, 18.0, 40.0, 60.0)
 
-    # Aggregate output membership
-    agg = np.zeros_like(y)
-    agg = np.maximum(agg, np.minimum(r1, out_high(y)))
-    agg = np.maximum(agg, np.minimum(r2, out_high(y)))
-    agg = np.maximum(agg, np.minimum(r3, out_high(y)))
+    # Peak intensity memberships
+    peak_low  = trap(peak, 0.0, 0.0, 0.5, 1.2)
+    peak_med  = tri (peak, 0.8, 1.8, 3.5)
+    peak_high = trap(peak, 2.5, 4.0, 8.0, 15.0)
 
-    agg = np.maximum(agg, np.minimum(r4, out_med(y)))
-    agg = np.maximum(agg, np.minimum(r5, out_med(y)))
-    agg = np.maximum(agg, np.minimum(r7, out_med(y)))
+    # Recent rainfall history memberships
+    recent_low  = trap(recent_total, 0.0, 0.0, 1.0, 4.0)
+    recent_med  = tri (recent_total, 2.0, 6.0, 12.0)
+    recent_high = trap(recent_total, 8.0, 12.0, 30.0, 60.0)
 
-    agg = np.maximum(agg, np.minimum(r6, out_low(y)))
-    agg = np.maximum(agg, np.minimum(r8, out_low(y)))
-    agg = np.maximum(agg, np.minimum(r9, out_low(y)))
+    # Forecast trend memberships (step-to-step change)
+    delta_down = trap(step_delta, -5.0, -5.0, -0.20, -0.02)
+    delta_flat = tri (step_delta, -0.08, 0.0, 0.08)
+    delta_up   = trap(step_delta, 0.02, 0.15, 5.0, 5.0)
 
-    # Defuzzify (centroid)
-    if float(np.sum(agg)) <= 1e-9:
-        risk = 0.0
-    else:
-        risk = float(np.sum(y * agg) / np.sum(agg))
+    # -----------------------------
+    # Output risk universe
+    # -----------------------------
+    xs = np.linspace(0.0, 1.0, 401)
 
+    # Output fuzzy sets for final risk
+    risk_low  = np.array([trap(x, 0.0, 0.0, 0.18, 0.38) for x in xs])
+    risk_med  = np.array([tri (x, 0.25, 0.50, 0.75) for x in xs])
+    risk_high = np.array([trap(x, 0.62, 0.80, 1.0, 1.0) for x in xs])
+
+    # -----------------------------
+    # Fuzzy rule base
+    # -----------------------------
+    rules = []
+
+    # R1: low forecast + low peak + low recent rain => low risk
+    rules.append((
+        "R1(total_low AND peak_low AND recent_low => low)",
+        min(total_low, peak_low, recent_low),
+        risk_low
+    ))
+
+    # R2: medium forecast total OR medium recent rain => medium risk
+    rules.append((
+        "R2(total_med OR recent_med => med)",
+        max(total_med, recent_med),
+        risk_med
+    ))
+
+    # R3: rising trend + (medium peak OR medium total) => medium risk
+    rules.append((
+        "R3(delta_rising AND (peak_med OR total_med) => med)",
+        min(delta_up, max(peak_med, total_med)),
+        risk_med
+    ))
+
+    # R4: high total OR high peak => high risk
+    rules.append((
+        "R4(total_high OR peak_high => high)",
+        max(total_high, peak_high),
+        risk_high
+    ))
+
+    # R5: high recent rain + (medium total OR medium peak) => high risk
+    rules.append((
+        "R5(recent_high AND (total_med OR peak_med) => high)",
+        min(recent_high, max(total_med, peak_med)),
+        risk_high
+    ))
+
+    # R6: rising trend + high total => high risk
+    rules.append((
+        "R6(delta_rising AND total_high => high)",
+        min(delta_up, total_high),
+        risk_high
+    ))
+
+    # -----------------------------
+    # Rule aggregation
+    # -----------------------------
+    agg = np.zeros_like(xs)
+    fired = []
+
+    for name, strength, shape in rules:
+        if strength > 0:
+            # Mamdani inference: clip rule output by rule strength, then aggregate with max
+            agg = np.maximum(agg, np.minimum(float(strength), shape))
+            fired.append((name, float(strength)))
+
+    # Final crisp risk value
+    risk = centroid(xs, agg)
+
+    # -----------------------------
+    # Risk label mapping
+    # -----------------------------
     if risk < 0.30:
         level = "Green"
     elif risk < 0.55:
@@ -481,13 +595,59 @@ def fuzzy_risk_mamdani(forecast_total: float, forecast_peak: float, step_delta: 
     else:
         level = "Red"
 
-    why = [
-        f"Fuzzy inputs: total={forecast_total:.2f}mm, peak={forecast_peak:.2f}mm/10min, step_delta={step_delta:+.2f}",
-        f"Memberships: total(L/M/H)=({total_low:.2f},{total_med:.2f},{total_high:.2f}), "
-        f"peak(L/M/H)=({peak_low:.2f},{peak_med:.2f},{peak_high:.2f}), "
-        f"delta(down/flat/up)=({delta_down:.2f},{delta_flat:.2f},{delta_up:.2f})",
+    # Keep only top 3 strongest fired rules for explanation
+    fired = sorted(fired, key=lambda x: x[1], reverse=True)[:3]
+
+    # -----------------------------
+    # Explanation text
+    # -----------------------------
+    explanation = [
+        f"Forecast accumulation (next 180 min): {forecast_total:.2f} mm",
+        f"Peak intensity: {peak:.2f} mm per 10 min",
+        f"Recent accumulation (past 180 min): {recent_total:.2f} mm",
+        f"Step delta (current next-step - previous next-step): {step_delta:.2f} mm",
     ]
-    return risk, level, why
+
+    if fired:
+        explanation.append(
+            "Top fuzzy rules fired: " +
+            "; ".join([f"{name}: {strength:.2f}" for name, strength in fired])
+        )
+
+    # -----------------------------
+    # Extra summary data for UI/debug
+    # -----------------------------
+    summary = {
+        "forecast_total_mm": forecast_total,
+        "forecast_peak_mm_per_step": peak,
+        "recent_total_mm": recent_total,
+        "step_delta_mm": step_delta,
+        "risk_engine": "fuzzy_flood_risk_mamdani",
+        "memberships": {
+            "total": {
+                "low": total_low,
+                "med": total_med,
+                "high": total_high,
+            },
+            "peak": {
+                "low": peak_low,
+                "med": peak_med,
+                "high": peak_high,
+            },
+            "recent": {
+                "low": recent_low,
+                "med": recent_med,
+                "high": recent_high,
+            },
+            "delta": {
+                "down": delta_down,
+                "flat": delta_flat,
+                "up": delta_up,
+            }
+        }
+    }
+
+    return float(risk), level, explanation, summary
 
 
 # -----------------------------
@@ -614,7 +774,7 @@ def predict():
         current_df = pd.DataFrame([current_row])
 
         # Build past 119 feature rows so the LSTM receives the same type of input
-        feat_hist, _ = load_recent_history(FEATURE_COLS)
+        feat_hist, recent_rain = load_recent_history(FEATURE_COLS)
         if feat_hist is None:
             return jsonify({
                 "error": (
@@ -630,49 +790,47 @@ def predict():
         window_df = window_df[FEATURE_COLS]
 
         rolled_in_mm = None
-        mode_used = "model"
-        prev = None
+        prev_first_step = None
 
         if simulation_mode:
             pred_series, err = get_simulated_forecast_series()
-            if err:
+            if err is not None:
                 return jsonify({"error": err}), 400
             pred_series = np.array(pred_series, dtype=float)
             mode_used = "simulation"
         else:
-            prev = _read_last_forecast() if auto_roll else None
-            prev_first = float(prev[0]) if (prev and len(prev) > 0) else None
-            if auto_roll and prev_first is not None:
-                rolled_in_mm = prev_first
-                _append_observed_rain(rolled_in_mm)
+            # Auto-roll: move ONLY previous forecast first-step into observed rain history
+            if auto_roll:
+                prev = _read_last_forecast()
+                if prev is not None and len(prev) > 0:
+                    prev_first_step = float(prev[0])
+                    rolled_in_mm = float(prev_first_step)
+                    _append_observed_rain(rolled_in_mm)
 
+            # Run model on full history window (119 past rows + current row)
             pred_series = run_model_forecast(window_df)
+            pred_series = np.array(pred_series, dtype=float)
 
             if auto_roll:
                 _write_last_forecast(pred_series)
 
-        # step_delta = current PEAK - previous PEAK
-        prev_peak = float(max(prev)) if prev else float(pred_series[0])
-        curr_peak = float(np.max(pred_series))
-        step_delta = curr_peak - prev_peak
+            mode_used = "model"
 
-        forecast_total = float(np.sum(np.maximum(pred_series, 0.0)))
-        forecast_peak = float(np.max(np.maximum(pred_series, 0.0)))
+        # compare current next-step vs previous next-step
+        step_delta = 0.0
+        if prev_first_step is not None and len(pred_series) > 0:
+            step_delta = float(pred_series[0]) - float(prev_first_step)
 
-        risk_conf, alert_level, fuzzy_why = fuzzy_risk_mamdani(forecast_total, forecast_peak, step_delta)
-
-        explanation = [
-            f"Forecast accumulation (next {HORIZON_STEPS * DATA_FREQ_MIN} min): {forecast_total:.2f} mm",
-            f"Peak intensity: {forecast_peak:.2f} mm per {DATA_FREQ_MIN} min",
-            f"Step delta (peak vs last call): {step_delta:+.2f} mm",
-        ]
-        # include fuzzy membership summary (helps testing)
-        explanation.extend(fuzzy_why)
+        risk_conf, alert_level, explanation, forecast_summary = fuzzy_flood_risk(
+            pred_series,
+            recent_rain,
+            step_delta,
+        )
 
         return jsonify(
             {
                 "mode": mode_used,
-                "risk_engine": "fuzzy_mamdani",
+                "risk_engine": forecast_summary.get("risk_engine", "fuzzy_flood_risk_mamdani"),
                 "auto_roll": auto_roll,
                 "rolled_in_rain_mm": rolled_in_mm,
                 "forecast_series_mm": pred_series.tolist(),
@@ -680,8 +838,11 @@ def predict():
                 "alert_level": alert_level,
                 "explanation": explanation,
                 "forecast_horizon_hours": round((HORIZON_STEPS * DATA_FREQ_MIN) / 60, 2),
-                "forecast_total_mm": forecast_total,
-                "forecast_peak_mm_per_step": forecast_peak,
+                "forecast_total_mm": float(forecast_summary.get("forecast_total_mm", np.sum(pred_series))),
+                "forecast_peak_mm_per_step": float(forecast_summary.get("forecast_peak_mm_per_step", np.max(pred_series))),
+                "recent_total_mm": float(forecast_summary.get("recent_total_mm", 0.0)),
+                "step_delta_mm": float(forecast_summary.get("step_delta_mm", step_delta)),
+                "memberships": forecast_summary.get("memberships", {}),
                 "data_frequency_minutes": DATA_FREQ_MIN,
                 "simulation_cursor_idx": _read_cursor() if mode_used == "simulation" else None,
             }
